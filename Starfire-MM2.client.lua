@@ -1,7 +1,7 @@
 local UIRefs={} -- UI references share one top-level register.
 -- Starfire MM2: standalone client UI using standard Roblox APIs.
 -- Role discovery observes replicated Knife/Gun tools; it cannot reveal unreplicated roles.
--- No downloaded code or runtime installation. Optional silent aim needs nonstandard hooks; knife sweep uses normal Tool activation.
+-- No downloaded code or runtime installation. Knife sweep uses normal Tool activation.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -31,10 +31,10 @@ local colors = {
 local settings = {
     droppedGunESP = true, sheriffDeathNotify = true, murdererESP = true, sheriffESP = true, innocentESP = true, names = true, throughWalls = true,
     opacity = 0.38, aim = false, fov = 220, responsiveness = 12, snapAim = true,
-    freeGunCamera = true, silentAim = false, silentHitChance = 100, wallCheck = true, showFov = true, loopEmote = true, emoteSpeed = 1,
+    freeGunCamera = true, wallCheck = true, showFov = true, loopEmote = true, emoteSpeed = 1,
     coinCollect = false, collectSpeed = 40, collectDepth = 14, cursorTP = true, attackInterval = 0.6,
     noMurd = true, murdererDistance = 35, fullBagAction = false, useBagCapacity = false, bagCapacity = 50,
-    knifeDodge = false, dodgeRadius = 12, proximityDodge = false, proximityDodgeRadius = 15,
+    knifeDodge = false, throwAnimationIds = "", dodgeRadius = 12, proximityDodge = false, proximityDodgeRadius = 15,
     visualSpin = false, spinSpeed = 5,
     fly = false, flySpeed = 50, noclip = false,
     flingStrength = 360,
@@ -49,7 +49,7 @@ local settings = {
     gunCircleRed = 190, gunCircleGreen = 85, gunCircleBlue = 255,
     speedEnabled = false, walkSpeed = 24,
     bubbleShot = false, bubbleShotVolume = 2, bubbleReloadVolume = 1.5,
-    bulletTracers = false, tracerLife = 3, tracerWidth = 0.07, tracerRed = 190, tracerGreen = 85, tracerBlue = 255,
+    bulletTracers = false, tracerExact = true, tracerLife = 3, tracerWidth = 0.07, tracerRed = 190, tracerGreen = 85, tracerBlue = 255,
     gunViewSize = .45, gunMatchSize = true, contourOpacity = 1, contourRed = 8, contourGreen = 9, contourBlue = 12, wireContours = true, wireArms = false, wireKnife = false, wireRed = 255, wireGreen = 255, wireBlue = 255, wireWidth = 1, knifeSize = 1, knifeOffsetX = -0.08, knifeOffsetY = -0.03, knifeOffsetZ = 0, knifeSkin = 1, voidglassInventory = true, voidglassPitch = 90, voidglassYaw = 0, voidglassRoll = 70,
     pshade = false, pshadePreset = "midday", pshadeSky = "midday", pshadeReflectance = 0.15,
     pshadeBlur = false, pshadeMotion = false, pshadeDepth = false,
@@ -63,6 +63,10 @@ local settings = {
     ambienceSunRays = true, ambienceRayIntensity = 0.08,
     ambienceDepth = false, ambienceFocus = 45, ambienceFarBlur = 0.12,
     ambienceStars = 3000, ambienceCelestial = true,
+    skyTint=false, skyRed=135, skyGreen=175, skyBlue=255,
+    horizonRed=225, horizonGreen=170, horizonBlue=210,
+    cloudRed=255, cloudGreen=255, cloudBlue=255, ambienceClouds=true, cloudCover=.5, cloudDensity=.5,
+    skyRotation=0, sunSize=11, moonSize=11, atmosphereGlare=0, atmosphereOffset=0,
     bunnyHop = false, bunnyGain = 5, bunnyMax = 80, jumpTrajectory = false, jumpTrailLife = 2.5,
     customArms = false, customArmX = 0, customArmY = 0, customArmZ = 0,
     gripArms = false, gripScale = 1, gripOffsetX = 0, gripOffsetY = -0.35, gripOffsetZ = 0.1,
@@ -97,7 +101,6 @@ local BunnyHop
 local GripArms
 local JumpMotion
 local GunViewmodel
-local SilentAim
 local WireStyle
 local Tracers
 local stopSweep
@@ -164,16 +167,15 @@ local gunCircleStroke = stroke(gunCircle, colors.purple, 0.1)
 gunCircleStroke.Thickness = 2
 
 local dodgeIndicator = make("TextLabel", {Name = "DodgeIndicator",
-    AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromScale(0.5, 0.16),
-    Size = UDim2.fromOffset(280, 40), BackgroundColor3 = colors.background,
-    BackgroundTransparency = 0.12, BorderSizePixel = 0, Text = "knife dodge · at hub",
-    Font = Enum.Font.GothamBold, TextSize = 15, TextColor3 = colors.purple,
+    AnchorPoint = Vector2.new(.5,.5), Position = UDim2.fromScale(.5,.34),
+    Size = UDim2.new(.8,0,0,44), BackgroundTransparency = 1, BorderSizePixel = 0,
+    Text = "knife dodge · at hub", TextSize = 26, TextColor3 = Color3.new(1,1,1),
+    FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json",Enum.FontWeight.Medium,Enum.FontStyle.Normal),
+    TextStrokeColor3 = Color3.new(0,0,0), TextStrokeTransparency = 0,
     Visible = false, ZIndex = 20}, gui)
-round(dodgeIndicator, 12)
-stroke(dodgeIndicator, colors.purple, 0.25)
 
 local window = make("CanvasGroup", {AnchorPoint = Vector2.new(0.5, 0.5),
-    Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(760, 540),
+    Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(920, 640),
     BackgroundColor3 = colors.background, BackgroundTransparency = 0.07, GroupTransparency = 1,
     BorderSizePixel = 0, ClipsDescendants = true}, gui)
 round(window, 14)
@@ -186,16 +188,15 @@ local logo = make("TextLabel", {Text = "✦", Font = Enum.Font.GothamBold, TextS
     Position = UDim2.fromOffset(21, 16), Size = UDim2.fromOffset(36, 36)}, header)
 logo.Text, logo.BackgroundTransparency = "", 1
 logo.Position, logo.Size = UDim2.fromOffset(20, 15), UDim2.fromOffset(26, 30)
-UIRefs.flameBase = make("Frame", {Position = UDim2.fromOffset(3, 9), Size = UDim2.fromOffset(20, 21),
-    BackgroundColor3 = colors.purple, BorderSizePixel = 0}, logo)
-round(UIRefs.flameBase, 10)
-UIRefs.flameTip = make("Frame", {Position = UDim2.fromOffset(9, 0), Size = UDim2.fromOffset(10, 22),
-    Rotation = 30, BackgroundColor3 = colors.purple, BorderSizePixel = 0}, logo)
-round(UIRefs.flameTip, 6)
-UIRefs.flameCutout = make("Frame", {Position = UDim2.fromOffset(11, 20), Size = UDim2.fromOffset(8, 13),
-    Rotation = 22, BackgroundColor3 = colors.headerGlow, BorderSizePixel = 0}, logo)
-round(UIRefs.flameCutout, 5)
-UIRefs.brand = label(header, "Starfire", 15)
+-- Stell monogram.
+do
+    for i,entry in ipairs({{3,5,20,-16},{6,14,14,-16},{3,23,20,-16}}) do
+        local bar=make("Frame",{Position=UDim2.fromOffset(entry[1],entry[2]),Size=UDim2.fromOffset(entry[3],4),
+            Rotation=entry[4],BackgroundColor3=i==2 and colors.text or colors.purple,BorderSizePixel=0},logo)
+        round(bar,2)
+    end
+end
+UIRefs.brand = label(header, "Stell", 15)
 UIRefs.brand.Position, UIRefs.brand.Size = UDim2.fromOffset(53, 18), UDim2.fromOffset(210, 25)
 UIRefs.subtitle = label(header, "MM2", 11, colors.purple)
 UIRefs.subtitle.Position, UIRefs.subtitle.Size = UDim2.new(1, -148, 0, 25), UDim2.fromOffset(44, 20)
@@ -212,7 +213,7 @@ local function smallButton(text, x, callback)
     connect(button.MouseLeave, function() animate(button, {BackgroundTransparency = 1, TextColor3 = colors.muted}) end)
     connect(button.Activated, callback)
 end
-local reopen = make("TextButton", {Text = "✦", TextSize = 26,
+local reopen = make("TextButton", {Text = "◇", TextSize = 26,
     Font = Enum.Font.GothamBold, TextColor3 = colors.purple,
     BackgroundColor3 = colors.background, Position = UDim2.fromOffset(18, 100),
     Size = UDim2.fromOffset(48, 48), Visible = false}, gui)
@@ -239,7 +240,7 @@ smallButton("×", -44, function() if cleanup then cleanup() end end)
 connect(reopen.Activated, toggleMenu)
 
 local sidebar = make("Frame", {Position = UDim2.fromOffset(0, 60),
-    Size = UDim2.new(0, 172, 1, -60), BackgroundColor3 = colors.background,
+    Size = UDim2.new(0, 190, 1, -60), BackgroundColor3 = colors.background,
     BorderSizePixel = 0}, window)
 local navList = make("ScrollingFrame", {Position = UDim2.fromOffset(0, 10),
     Size = UDim2.new(1, -3, 1, -62), BackgroundTransparency = 1, BorderSizePixel = 0,
@@ -249,14 +250,14 @@ make("Frame", {Position = UDim2.new(1, -1, 0, 16), Size = UDim2.new(0, 1, 1, -38
     BackgroundColor3 = colors.purple, BackgroundTransparency = 0.91, BorderSizePixel = 0}, sidebar)
 local content = make("Frame", {Position = UDim2.fromOffset(184, 86),
     Size = UDim2.new(1, -206, 1, -150), BackgroundTransparency = 1}, window)
-content.Position, content.Size = UDim2.fromOffset(184, 74), UDim2.new(1, -196, 1, -88)
+content.Position, content.Size = UDim2.fromOffset(210, 116), UDim2.new(1, -230, 1, -136)
 local pageTitle = label(window, "Visuals", 22, colors.text)
-pageTitle.Position, pageTitle.Size = UDim2.fromOffset(188, 88), UDim2.fromOffset(260, 32)
-pageTitle.Visible = false
+pageTitle.Position, pageTitle.Size = UDim2.fromOffset(212, 76), UDim2.fromOffset(440, 30)
+pageTitle.Visible = true
 local search = make("TextBox", {Text = "", PlaceholderText = "Search everything…", ClearTextOnFocus = false,
     Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = colors.text, PlaceholderColor3 = colors.muted,
     TextXAlignment = Enum.TextXAlignment.Left, BackgroundColor3 = colors.panel, BorderSizePixel = 0,
-    Position = UDim2.new(1, -260, 0, 15), Size = UDim2.fromOffset(160, 30)}, window)
+    Position = UDim2.new(1, -322, 0, 15), Size = UDim2.fromOffset(218, 32)}, window)
 round(search, 10); stroke(search, colors.purple, 0.88)
 make("UIPadding", {PaddingLeft = UDim.new(0, 13), PaddingRight = UDim.new(0, 13)}, search)
 connect(search.Focused, function() animate(search, {BackgroundColor3 = colors.raised}) end)
@@ -285,8 +286,8 @@ end
 
 local pages, navigation, pageIndices, pageColumns = {}, {}, {}, {}
 local navPositions = {Aim = 28, Guns = 56, Knife = 84, Dodge = 112, Visuals = 172,
-    Appearance = 200, Skins = 228, Ambience = 256, Movement = 316, Collect = 344, Players = 372, Emotes = 400, Configs = 428, Settings = 456}
-for _, entry in ipairs({{"Combat", 0}, {"Visuals", 144}, {"Miscellaneous", 288}}) do
+    Skins = 200, Ambience = 228, Movement = 288, Collect = 316, Players = 344, Emotes = 372, Configs = 400, Settings = 428}
+for _, entry in ipairs({{"Combat", 0}, {"Visuals", 144}, {"Miscellaneous", 260}}) do
     local heading = label(navList, entry[1], 12, colors.text)
     heading.Position, heading.Size = UDim2.fromOffset(15, entry[2]), UDim2.fromOffset(142, 25)
 end
@@ -371,27 +372,27 @@ local function page(title, index)
         ElasticBehavior = Enum.ElasticBehavior.WhenScrollable}, host)
     make("UIPadding", {PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 10),
         PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 18)}, view)
-    make("UIListLayout", {Padding = UDim.new(0, 16),
+    make("UIListLayout", {Padding = UDim.new(0, 18),
         SortOrder = Enum.SortOrder.LayoutOrder}, view)
     local right = view:Clone()
     right.Parent = host
-    view.Position, view.Size = UDim2.fromOffset(10, 36), UDim2.new(0.5, -25, 1, -48)
-    right.Position, right.Size = UDim2.new(0.5, 15, 0, 36), UDim2.new(0.5, -25, 1, -48)
+    view.Position, view.Size = UDim2.fromOffset(16, 46), UDim2.new(0.5, -32, 1, -64)
+    right.Position, right.Size = UDim2.new(0.5, 22, 0, 46), UDim2.new(0.5, -38, 1, -64)
     pageColumns[title] = {view, right}
     for columnIndex, column in ipairs({view, right}) do
-        local card = make("Frame", {Position = UDim2.new((columnIndex - 1) * 0.5, columnIndex == 1 and 0 or 5, 0, 0),
-            Size = UDim2.new(0.5, -5, 1, 0), BackgroundColor3 = colors.panel, BackgroundTransparency = 0.05,
+        local card = make("Frame", {Position = UDim2.new((columnIndex - 1) * 0.5, columnIndex == 1 and 0 or 6, 0, 0),
+            Size = UDim2.new(0.5, -6, 1, 0), BackgroundColor3 = colors.panel, BackgroundTransparency = 0.12,
             BorderSizePixel = 0, ZIndex = 1}, host)
-        round(card, 6)
-        local heading = label(card, (columnIndex == 1 and "Main " or "More ") .. title .. " Config", 14, colors.purple)
-        heading.Position, heading.Size = UDim2.fromOffset(14, 11), UDim2.new(1, -24, 0, 20)
+        round(card, 10)
+        local heading = label(card, (columnIndex == 1 and "Settings" or "More settings"), 13, colors.purple)
+        heading.Position, heading.Size = UDim2.fromOffset(16, 14), UDim2.new(1, -24, 0, 20)
         column.ZIndex = 2
     end
     local nav = make("TextButton", {Text = "  " .. title, TextXAlignment = Enum.TextXAlignment.Left,
         Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = colors.muted,
         BackgroundColor3 = colors.accentPanel, BackgroundTransparency = 1, AutoButtonColor = false,
         BorderSizePixel = 0, Position = UDim2.fromOffset(20, navPositions[title]),
-        Size = UDim2.fromOffset(142, 26)}, navList)
+        Size = UDim2.fromOffset(158, 28)}, navList)
     round(nav, 7)
     local icon = make("TextLabel", {Text = title:sub(1, 1), Font = Enum.Font.GothamBold,
         TextSize = 11, TextColor3 = colors.purple, BackgroundColor3 = colors.accentPanel,
@@ -416,7 +417,7 @@ local function button(parent, text, callback)
         Font = Enum.Font.GothamBold, TextSize = 14, BackgroundColor3 = colors.raised,
         Size = UDim2.new(1, -2, 0, 40), BorderSizePixel = 0, AutoButtonColor = false,
         TextTruncate = Enum.TextTruncate.AtEnd}, parent)
-    round(item, 3)
+    round(item, 7)
     item:SetAttribute("SearchText", text)
     local border = stroke(item, colors.border, 0.95)
     local pressScale = make("UIScale", {Scale = 1}, item)
@@ -438,7 +439,7 @@ local function toggle(parent, text, key, onChanged)
     local row = button(parent, text, function() end)
     row.Text = ""
     row.BackgroundTransparency = 1
-    local caption = label(row, text, 14, colors.muted)
+    local caption = label(row, text, 14, colors.text)
     caption.Position, caption.Size = UDim2.fromOffset(0, 0), UDim2.new(1, -30, 1, 0)
     caption.TextTruncate = Enum.TextTruncate.AtEnd
     local pill = make("Frame", {AnchorPoint = Vector2.new(1, 0.5),
@@ -474,7 +475,7 @@ local function slider(parent, text, key, low, high, format, onChanged)
     caption.Position = UDim2.new(0, 0, 0.2, 0)
     caption.Size = UDim2.new(0.6, 0, 0, 18)
     caption.TextTruncate = Enum.TextTruncate.AtEnd
-    local value = label(row, "", 14, colors.muted)
+    local value = label(row, "", 13, colors.purple)
     value.Position, value.Size = UDim2.fromScale(0.6, 0.2), UDim2.new(0.4, 0, 0, 18)
     value.TextTruncate = Enum.TextTruncate.AtEnd
     value.TextXAlignment = Enum.TextXAlignment.Right
@@ -620,7 +621,7 @@ slider(UIRefs.assistance, "FOV radius", "fov", 40, 600, function(v) return math.
 slider(UIRefs.assistance, "Aim response", "responsiveness", 2, 30, function(v) return string.format("%.1f", v) end)
 toggle(UIRefs.assistance, "Snap aim · instant camera lock", "snapAim")
 UIRefs.movementPage = page("Movement", 3)
-UIRefs.appearancePage = page("Appearance", 4)
+UIRefs.appearancePage = make("Frame",{Name="RetiredAppearanceControls",Visible=false,Size=UDim2.fromOffset(1,1),BackgroundTransparency=1},gui)
 UIRefs.gunsPage = page("Guns", 5)
 UIRefs.automationPage = page("Collect", 6)
 UIRefs.knifePage = page("Knife", 7)
@@ -1249,7 +1250,7 @@ button(UIRefs.appearancePage, "Apply username", function() AvatarClone.Load(UIRe
 connect(UIRefs.avatarUsername.FocusLost, function(enter) if enter then AvatarClone.Load(UIRefs.avatarUsername.Text) end end)
 connect(RunService.PreSimulation, function() if running then AvatarClone.SyncJoints() end end)
 
--- Prefer explicit replicated round flags; the saved hub is a spatial fallback.
+-- Round visibility uses replicated lobby flags, independently of the dodge destination.
 UIRefs.roundState={drops={},sheriffs={},pickupBusy=false}
 function UIRefs.roundState.InHub(other)
     local character=other.Character
@@ -1264,9 +1265,7 @@ function UIRefs.roundState.InHub(other)
             if round==false then return true end
         end
     end
-    local root=character and character:FindFirstChild("HumanoidRootPart")
-    local hub=Evade and Evade.HubPosition()
-    return root and hub and (Vector2.new(root.Position.X-hub.X,root.Position.Z-hub.Z)).Magnitude<=settings.spawnRadius or false
+    return false
 end
 local function observedRole(other)
     for _, container in ipairs({other.Character, other:FindFirstChildOfClass("Backpack")}) do
@@ -1903,7 +1902,7 @@ Automation = (function()
                     character:PivotTo(CFrame.lookAt(position, Vector3.new(root.Position.X, position.Y, root.Position.Z)))
                     if not state.firstApproachAt then
                         state.firstApproachAt = os.clock()
-                        if state.manual then nextShot = state.firstApproachAt + 1 end
+                        nextShot = state.firstApproachAt + .025
                     end
                     zeroVelocity(character)
                     local handle = gun:FindFirstChild("Handle")
@@ -1916,16 +1915,17 @@ Automation = (function()
                     local hit = Workspace:Raycast(origin, torso.Position - origin, params)
                     local clear = not hit or hit.Instance:IsDescendantOf(victim)
                     if clear and (state.aimFrames or 0) >= 2 and gun.Enabled and os.clock() >= nextShot then
-                        nextShot = os.clock() + 1.1
                         gun:Activate()
-                        task.delay(0.12, function()
-                            if bagState == state and token == bagGeneration and gun.Parent then pcall(function() gun:Deactivate() end) end
-                        end)
+                        state.shotRequested=true
+                        retryBagAt=os.clock()+4;bagConsumed=true
+                        api.StopBag(true)
+                        break
                     end
                     RunService.Heartbeat:Wait()
                 end
                 completed = target.Character == victim and not living(victim)
                 if completed then notify("Murderer observed down; collection stays enabled for the next round")
+                elseif state.shotRequested then notify("Shot requested · returned to starting position")
                 else announce("Gun attack attempt ended; no elimination confirmed", true) end
             end)
             if bagState == state and token == bagGeneration then
@@ -1953,7 +1953,6 @@ Automation = (function()
     end
     function api.Busy() return bagState ~= nil end
     function api.AimBagCamera(camera)
-        if manualGunMode() or settings.silentAim then if bagState then bagState.aimFrames=(bagState.aimFrames or 0)+1 end;return end
         local state = bagState
         local part = state and state.aimPart
         if not camera or not part or not part.Parent or not living(state.character) then return end
@@ -2278,6 +2277,16 @@ Fling = (function()
             victim = victim, origin = player.Character:GetPivot(), autoRotate = humanoid.AutoRotate,
             platformStand = humanoid.PlatformStand, started = os.clock(), deadline = os.clock() + 3,
             collisions = {}, objects = {}, connections = {}, contacts = 0}
+        local current=state
+        local function register(part)
+            if not part:IsA("BasePart") or current.collisions[part]~=nil then return end
+            current.collisions[part]=part.CanCollide;part.CanCollide=true
+            table.insert(current.connections,part.Touched:Connect(function(hit)
+                if state==current and hit:IsDescendantOf(current.victim) then current.contacts+=1 end
+            end))
+        end
+        for _,part in ipairs(current.character:GetDescendants()) do register(part) end
+        table.insert(current.connections,current.character.DescendantAdded:Connect(register))
         local ok, err = pcall(function()
             humanoid.AutoRotate, humanoid.PlatformStand = false, true
             local attachment = make("Attachment", {Name = "StarfireFlingAttachment"}, root)
@@ -2314,28 +2323,18 @@ Fling = (function()
                 or "Fling ended · no player contact detected; collision rules may prevent it", contacts == 0)
             return
         end
-        for _, part in ipairs(current.character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if current.collisions[part] == nil then
-                    current.collisions[part] = part.CanCollide
-                    if part.Touched then
-                        table.insert(current.connections, part.Touched:Connect(function(hit)
-                            if state == current and hit:IsDescendantOf(current.victim) then current.contacts = current.contacts + 1 end
-                        end))
-                    end
-                end
-                part.CanCollide = true
-            end
-        end
         local delta = targetRoot.Position - current.root.Position
         if delta.Magnitude > 40 then api.Stop(true); notify("Fling stopped: target out of reach"); return end
         local elapsed = os.clock() - current.started
         local velocity = targetRoot.AssemblyLinearVelocity or Vector3.zero
+        if current.contacts>0 and velocity.Magnitude>65 and delta.Magnitude>6 then
+            api.Stop(true);notify("Target launch observed · returned");return
+        end
         local lead = velocity * 0.08
         if lead.Magnitude > 4 then lead = lead.Unit * 4 end
-        local contactOffset = Vector3.new(math.sin(elapsed * 12) * 0.65, math.sin(elapsed * 18) * 0.25, math.cos(elapsed * 12) * 0.65)
+        local contactOffset = Vector3.new(math.sin(elapsed * 9) * .28, .05, math.cos(elapsed * 9) * .28)
         local steering = targetRoot.Position + lead + contactOffset - current.root.Position
-        current.linear.VectorVelocity = steering.Magnitude > 0.1 and steering.Unit * math.min(70, steering.Magnitude * 35) or Vector3.zero
+        current.linear.VectorVelocity = steering.Magnitude > 0.1 and steering.Unit * math.min(90, steering.Magnitude * 45) + velocity or Vector3.zero
         current.angular.AngularVelocity = Vector3.new(1, 1, 1).Unit * settings.flingStrength
     end
     return api
@@ -2451,13 +2450,14 @@ end)
 Evade = (function()
     local api, hub, state = {}, nil, nil
     local watchers, attacks, explicitIds = {}, {}, {}
+    local seenThrows=setmetatable({},{__mode="k"})
     local projectiles,projectileScan={},false
     local function candidate(part)
         if not part:IsA("BasePart") or part:IsDescendantOf(effects) then return false end
         local node,named=part,false
         for i=1,5 do
             if not node or node==Workspace then break end
-            if node:IsA("Tool") or (node:IsA("Model") and Players:GetPlayerFromCharacter(node)) then return false end
+            if node:IsA("Model") and Players:GetPlayerFromCharacter(node) then return false end
             local name=node.Name:lower()
             if name:find("knife",1,true) then named=true end
             node=node.Parent
@@ -2473,7 +2473,7 @@ Evade = (function()
                         return other~=player and entry.role=="murderer"
                     end
                 end
-                return false
+                -- Unknown owner encoding: fall back to fresh-projectile trajectory checks.
             end
         end
         local cached=projectiles[part]
@@ -2481,12 +2481,11 @@ Evade = (function()
             local entry=entries[cached.owner]
             return entry and entry.role=="murderer" and living(entry.character) or false
         end
-        return false
+        return cached and cached.born and os.clock()-cached.born<5 or false
     end
     local function watchProjectile(part)
         if not settings.knifeDodge or not part:IsA("BasePart") or part:IsDescendantOf(effects) then return end
-        if candidate(part) then projectiles[part]={position=part.Position,time=os.clock()};return end
-        if part:FindFirstAncestorOfClass("Tool") then return end
+        if candidate(part) then projectiles[part]={position=part.Position,time=os.clock(),born=os.clock(),confirmed=true};return end
         local node=part
         local named=false
         for _=1,4 do
@@ -2498,10 +2497,11 @@ Evade = (function()
         if not named then return end
         for other,entry in pairs(entries) do
             local root=entry.character and entry.character:FindFirstChild("HumanoidRootPart")
-            if entry.role=="murderer" and root and living(entry.character) and (part.Position-root.Position).Magnitude<8 then
-                projectiles[part]={position=part.Position,time=os.clock(),owner=other};return
+            if entry.role=="murderer" and root and living(entry.character) and (part.Position-root.Position).Magnitude<24 then
+                projectiles[part]={position=part.Position,time=os.clock(),born=os.clock(),owner=other};return
             end
         end
+        projectiles[part]={position=part.Position,time=os.clock(),born=os.clock()}
     end
     connect(Workspace.DescendantAdded,function(part)
         if settings.knifeDodge and part:IsA("BasePart") then task.defer(function() if part.Parent then watchProjectile(part) end end) end
@@ -2514,13 +2514,15 @@ Evade = (function()
         local speed2=motion:Dot(motion)
         if speed2<144 or relative:Dot(motion)>=0 then return false end
         local time=-relative:Dot(motion)/speed2
-        if time<0 or time>.45 then return false end
+        if time<0 or time>.60 then return false end
         return (relative+motion*time).Magnitude<=radius
     end
     local function thrownThreat(position,root)
         if not projectileScan then
             projectileScan=true
-            -- Only newly replicated throws are watched; existing map knives are ignored.
+            for _,object in ipairs(Workspace:GetDescendants()) do
+                if object:IsA("BasePart") then watchProjectile(object) end
+            end
         end
         local now=os.clock()
         for part,sample in pairs(projectiles) do
@@ -2533,10 +2535,21 @@ Evade = (function()
                     local measured=(location-sample.position)/elapsed
                     if measured.Magnitude>velocity.Magnitude then velocity=measured end
                 end
-                sample.position=location;sample.time=now
-                if (location-position).Magnitude<=math.max(45,settings.dodgeRadius*4)
-                    and incoming(location,velocity,position,state and Vector3.zero or root.AssemblyLinearVelocity,
-                        3+math.min(part.Size.Magnitude*.5,1)) then return true end
+                sample.position=location;sample.time=now;sample.speed=velocity.Magnitude
+                if not sample.owner and velocity.Magnitude>=18 then
+                    local direction=velocity.Unit
+                    for other,entry in pairs(entries) do
+                        local throwRoot=entry.character and entry.character:FindFirstChild("HumanoidRootPart")
+                        if entry.role=="murderer" and throwRoot and living(entry.character) then
+                            local offset=location-throwRoot.Position
+                            local along=offset:Dot(direction)
+                            if along>=-2 and along<120 and (offset-direction*along).Magnitude<8 then sample.owner=other;break end
+                        end
+                    end
+                end
+                if (location-position).Magnitude<=120
+                    and incoming(location,velocity,position,state and (state.proxyVelocity or Vector3.zero) or root.AssemblyLinearVelocity,
+                        4+math.min(part.Size.Magnitude*.5,1)) then return true end
             end
         end
         return false
@@ -2547,6 +2560,22 @@ Evade = (function()
     local function equippedKnife(character)
         local knife = character and (character:FindFirstChild("Knife") or character:FindFirstChild("knife"))
         return knife and knife:IsA("Tool") and knife or nil
+    end
+    local function throwAnimation(track,character)
+        local animation=track.Animation
+        if not animation then return false end
+        local id=animation.AnimationId:match("%d+")
+        for explicit in settings.throwAnimationIds:gmatch("%d+") do if explicit==id then return true end end
+        local names=(track.Name.." "..animation.Name.." "..(animation.Parent and animation.Parent.Name or "")):lower()
+        if names:find("throw",1,true) or names:find("toss",1,true) then return true end
+        local knife=equippedKnife(character)
+        if knife and id then
+            for _,object in ipairs(knife:GetDescendants()) do
+                if object:IsA("Animation") and (object.Name:lower():find("throw",1,true) or object.Name:lower():find("toss",1,true))
+                    and object.AnimationId:match("%d+")==id then return true end
+            end
+        end
+        return false
     end
     local function attackAnimation(track)
         local animationObject = track.Animation
@@ -2570,25 +2599,94 @@ Evade = (function()
             local enemyRoot=entry.character and entry.character:FindFirstChild("HumanoidRootPart")
             if entry.role=="murderer" and enemyRoot and root and living(entry.character) then
                 count=count+1
-                local distance=(enemyRoot.Position-(state and state.origin.Position or root.Position)).Magnitude
+                local distance=(enemyRoot.Position-(state and (state.returnPoint or state.origin).Position or root.Position)).Magnitude
                 nearest=not nearest and distance or math.min(nearest,distance)
             end
         end
-        return statusText.."\nMurderers observed: "..count..(nearest and string.format(" · nearest %.1f studs",nearest) or "").."\n"..lastEvent
+        local knives,moving=0,0
+        for part,sample in pairs(projectiles) do
+            if part.Parent then knives+=1;if (sample.speed or 0)>=18 then moving+=1 end end
+        end
+        return statusText.."\nMurderers observed: "..count..(nearest and string.format(" · nearest %.1f studs",nearest) or "")
+            .."\nKnives tracked: "..knives.." · moving: "..moving.."\n"..lastEvent
     end
     function api.Stop(returnToOrigin)
-        local old = state
-        state = nil
+        local old=state;state=nil
         if not old then return end
-        if old.camera == Workspace.CurrentCamera then
-            old.camera.CFrame, old.camera.Focus = old.view, old.focus
-            old.camera.CameraSubject, old.camera.CameraType = old.subject, old.cameraType
+        local destination=old.proxy and old.proxy.Parent and old.proxy:GetPivot() or old.origin
+        if player.Character==old.character and living(old.character) then
+            if returnToOrigin then old.character:PivotTo(destination);zeroVelocity(old.character) end
+            old.humanoid.AutoRotate=old.autoRotate
         end
-        if player.Character == old.character and living(old.character) then
-            if returnToOrigin then old.character:PivotTo(old.origin); zeroVelocity(old.character) end
-            old.humanoid.AutoRotate = old.autoRotate
+        if old.camera==Workspace.CurrentCamera then
+            if not old.proxy then old.camera.CFrame,old.camera.Focus=old.returnView or old.view,old.returnFocus or old.focus end
+            old.camera.CameraSubject=old.humanoid.Parent and old.humanoid or old.subject
+            old.camera.CameraType=old.cameraType
         end
-        readyAt = os.clock() + 0.15
+        if old.proxy then old.proxy:Destroy() end
+        readyAt=os.clock()+.15
+    end
+    local function makeProxy(current)
+        local original=current.character.Archivable
+        current.character.Archivable=true
+        local ok,clone=pcall(function() return current.character:Clone() end)
+        current.character.Archivable=original
+        if not ok or not clone then return false end
+        clone.Name="StellDodgeLocalBody"
+        for _,object in ipairs(clone:GetDescendants()) do
+            if object:IsA("Script") or object:IsA("LocalScript") or object:IsA("Tool")
+                or object:IsA("Highlight") or object:IsA("BillboardGui") then object:Destroy()
+            elseif object:IsA("BasePart") then
+                object.CanCollide=false;object.CanTouch=false;object.CanQuery=false;object.Massless=true
+                object.LocalTransparencyModifier=0;object.AssemblyLinearVelocity=Vector3.zero;object.AssemblyAngularVelocity=Vector3.zero
+            end
+        end
+        local root=clone:FindFirstChild("HumanoidRootPart")
+        local humanoid=clone:FindFirstChildOfClass("Humanoid")
+        if not root or not humanoid then clone:Destroy();return false end
+        root.Anchored=true;root.Transparency=1;humanoid.AutoRotate=false;humanoid.DisplayDistanceType=Enum.HumanoidDisplayDistanceType.None
+        clone.Parent=effects;clone:PivotTo(current.origin)
+        current.proxy,current.proxyRoot,current.proxyHumanoid=clone,root,humanoid
+        current.returnPoint=current.origin;current.proxyVelocity=Vector3.zero
+        current.proxyTime=os.clock();current.verticalVelocity=0
+        current.groundOffset=humanoid.RigType==Enum.HumanoidRigType.R6 and 3 or math.max(2,root.Size.Y*.5+humanoid.HipHeight)
+        current.camera.CameraSubject=humanoid;current.camera.CameraType=Enum.CameraType.Custom
+        return true
+    end
+    local function moveProxy(current)
+        if not current.proxy or not current.proxy.Parent then return end
+        local now=os.clock();local dt=math.min(now-current.proxyTime,.05);current.proxyTime=now
+        local direction=current.humanoid.MoveDirection
+        if UIS:GetFocusedTextBox() then direction=Vector3.zero end
+        direction=Vector3.new(direction.X,0,direction.Z)
+        if direction.Magnitude>1 then direction=direction.Unit end
+        local speed=math.clamp(current.humanoid.WalkSpeed,0,80)
+        local displacement=direction*speed*dt
+        local params=RaycastParams.new();params.FilterType=Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances={current.character,effects};params.RespectCanCollide=true
+        local position=current.proxyRoot.Position
+        if displacement.Magnitude>.0001 then
+            local wall=Workspace:Raycast(position,displacement.Unit*(displacement.Magnitude+.7),params)
+            if wall then displacement=displacement.Unit*math.max(0,wall.Distance-.7) end
+        end
+        local nextPosition=position+displacement
+        local ground=Workspace:Raycast(nextPosition+Vector3.new(0,1,0),Vector3.new(0,-(current.groundOffset+1.35),0),params)
+        local grounded=ground and position.Y-ground.Position.Y<=current.groundOffset+.25 and current.verticalVelocity<=0
+        if grounded then
+            nextPosition=Vector3.new(nextPosition.X,ground.Position.Y+current.groundOffset,nextPosition.Z)
+            current.verticalVelocity=0
+            if UIS:IsKeyDown(Enum.KeyCode.Space) and not UIS:GetFocusedTextBox() then current.verticalVelocity=35 end
+        else current.verticalVelocity-=Workspace.Gravity*dt end
+        nextPosition+=Vector3.new(0,current.verticalVelocity*dt,0)
+        local rotation=current.proxy:GetPivot().Rotation
+        if direction.Magnitude>.05 then rotation=CFrame.lookAt(Vector3.zero,direction).Rotation end
+        current.proxy:PivotTo(CFrame.new(nextPosition)*rotation)
+        current.returnPoint=current.proxy:GetPivot();current.proxyVelocity=dt>0 and (nextPosition-position)/dt or Vector3.zero
+        current.proxyHumanoid:Move(direction,false)
+        local firstPerson=(current.camera.CFrame.Position-current.camera.Focus.Position).Magnitude<1.2
+        for _,object in ipairs(current.proxy:GetDescendants()) do
+            if object:IsA("BasePart") then object.LocalTransparencyModifier=firstPerson and 1 or 0 end
+        end
     end
     local function beginDodge()
         if Scare and Scare.Busy() then statusText="Blocked · scare is active";return end
@@ -2609,7 +2707,9 @@ Evade = (function()
             subject = camera.CameraSubject, cameraType = camera.CameraType,
             autoRotate = humanoid.AutoRotate, quietSince = nil}
         humanoid.AutoRotate = false
-        camera.CameraType = Enum.CameraType.Scriptable
+        if not makeProxy(state) then
+            api.Stop(false);statusText="Cannot create local dodge body";return false
+        end
         character:PivotTo(hub)
         zeroVelocity(character)
         statusText = "Dodging · at saved hub"
@@ -2626,7 +2726,7 @@ Evade = (function()
         local character = player.Character
         local root = character and character:FindFirstChild("HumanoidRootPart")
         if not root then return false end
-        local position = state and state.origin.Position or root.Position
+        local position = state and (state.returnPoint or state.origin).Position or root.Position
         if settings.proximityDodge then
             local radius=settings.proximityDodgeRadius + (state and 2 or 0)
             for other,entry in pairs(entries) do
@@ -2670,8 +2770,34 @@ Evade = (function()
         end
         return false
     end
+    local function throwInRange(character)
+        local root=character and character:FindFirstChild("HumanoidRootPart")
+        local localRoot=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if not root or not localRoot then return false end
+        local position=state and (state.returnPoint or state.origin).Position or localRoot.Position
+        if (root.Position-position).Magnitude<=30 then return true end
+        local camera=Workspace.CurrentCamera
+        if not camera then return false end
+        local point,onScreen=camera:WorldToViewportPoint(root.Position)
+        if not onScreen or point.Z<=0 then return false end
+        local params=RaycastParams.new();params.FilterType=Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances={player.Character,effects,camera}
+        local hit=Workspace:Raycast(camera.CFrame.Position,root.Position-camera.CFrame.Position,params)
+        return not hit or hit.Instance:IsDescendantOf(character)
+    end
     local function observeTrack(other, character, animationTrack)
-        if not entries[other] or entries[other].role~="murderer" or not equippedKnife(character) then return end
+        if not entries[other] or entries[other].role~="murderer" or not living(character) then return end
+        if settings.knifeDodge and throwAnimation(animationTrack,character) then
+            seenThrows[animationTrack]=true
+            if not throwInRange(character) then return end
+            beginDodge()
+            if state then
+                state.throwUntil=os.clock()+2
+                lastEvent="Murderer throw animation · holding dodge for 2 seconds"
+            end
+            return
+        end
+        if not equippedKnife(character) then return end
         if not attackAnimation(animationTrack) then
             local animation = animationTrack.Animation
             lastUnrecognised = animation and (animation.AnimationId:match("%d+") or animationTrack.Name) or animationTrack.Name
@@ -2712,14 +2838,31 @@ Evade = (function()
         if state and (player.Character ~= state.character or Workspace.CurrentCamera ~= state.camera) then
             api.Stop(false); return
         end
-        local danger = threatened() or (state and state.testUntil and os.clock() < state.testUntil)
+        -- Also catch a throw that began just before the animation watcher attached.
+        if settings.knifeDodge then
+            for other,watch in pairs(watchers) do
+                local entry=entries[other]
+                if entry and entry.role=="murderer" then
+                    for _,track in ipairs(watch.animator:GetPlayingAnimationTracks()) do
+                        if not seenThrows[track] and throwAnimation(track,watch.character) then observeTrack(other,watch.character,track) end
+                    end
+                end
+            end
+        end
+        if state then moveProxy(state) end
+        local liveThreat=threatened()
+        if state and state.throwUntil and os.clock()>=state.throwUntil and not liveThreat then api.Stop(true);return end
+        local danger = liveThreat or (state and state.throwUntil and os.clock()<state.throwUntil)
+            or (state and state.testUntil and os.clock() < state.testUntil)
         if danger then beginDodge() end
         if not state then
             statusText = lastUnrecognised and ("Unrecognised knife animation: " .. lastUnrecognised .. " · add its ID below")
                 or (settings.proximityDodge and "Ready · watching murderer proximity" or "Ready · watching swings and incoming thrown knives")
             return
         end
-        statusText = danger and "Dodging · at saved hub" or "Area clear · returning shortly"
+        statusText = state.throwUntil and os.clock()<state.throwUntil
+            and string.format("Throw dodge · %.1f seconds left",state.throwUntil-os.clock())
+            or (danger and "Dodging · move local body; real body at hub" or "Area clear · returning to local body")
         if danger then state.quietSince = nil
         elseif not state.quietSince then state.quietSince = os.clock()
         elseif os.clock() - state.quietSince >= 0.2 then api.Stop(true); return end
@@ -2727,7 +2870,7 @@ Evade = (function()
         zeroVelocity(state.character)
     end
     function api.Camera()
-        if state then state.camera.CFrame, state.camera.Focus = state.view, state.focus end
+        if state and not state.proxy then state.camera.CFrame,state.camera.Focus=state.view,state.focus end
     end
     function api.SetHub()
         if state then notify("Stop the dodge before setting the hub", true); return end
@@ -2765,7 +2908,7 @@ slider(UIRefs.dodgePage,"Proximity dodge distance","proximityDodgeRadius",5,50,f
 button(UIRefs.dodgePage, "Set hub to current position", function() Evade.SetHub() end)
 button(UIRefs.dodgePage, "Test dodge · teleport and return", function() Evade.Test() end)
 UIRefs.dodgeStatus = label(UIRefs.dodgePage, "Disabled", 13, colors.text)
-UIRefs.dodgeStatus.Size, UIRefs.dodgeStatus.TextWrapped = UDim2.new(1, -4, 0, 90), true
+UIRefs.dodgeStatus.Size, UIRefs.dodgeStatus.TextWrapped = UDim2.new(1, -4, 0, 112), true
 UIRefs.dodgeStatus:SetAttribute("SearchText", "Knife dodge status")
 slider(UIRefs.dodgePage, "Knife detection radius", "dodgeRadius", 5, 25, function(v) return string.format("%.0f studs", v) end)
 UIRefs.swingIds = make("TextBox", {Text = "", PlaceholderText = "Optional swing animation IDs, separated by commas",
@@ -2774,6 +2917,13 @@ UIRefs.swingIds = make("TextBox", {Text = "", PlaceholderText = "Optional swing 
     Font = Enum.Font.GothamBold, TextSize = 12, BorderSizePixel = 0}, UIRefs.dodgePage)
 round(UIRefs.swingIds, 3)
 connect(UIRefs.swingIds.FocusLost, function() Evade.SetIds(UIRefs.swingIds.Text) end)
+do
+    local ids=make("TextBox",{Text=settings.throwAnimationIds,PlaceholderText="Optional throw animation IDs",
+        ClearTextOnFocus=false,Font=Enum.Font.GothamBold,TextSize=12,TextColor3=colors.text,
+        PlaceholderColor3=colors.muted,BackgroundColor3=colors.background,BorderSizePixel=0,Size=UDim2.new(1,-2,0,42)},UIRefs.dodgePage)
+    connect(ids.FocusLost,function() settings.throwAnimationIds=ids.Text:sub(1,128) end)
+    stateRefreshers.throwAnimationIds=function() ids.Text=settings.throwAnimationIds end
+end
 button(UIRefs.dodgePage, "Stop dodge and return", function() Evade.Stop(true) end)
 connect(RunService.Heartbeat, function()
     local ok,err=pcall(Evade.Step)
@@ -2919,89 +3069,7 @@ local function aimTarget(camera, requireSight)
 end
 -- Optional gun-scoped adaptation of the supplied universal hook approach.
 -- Requires nonstandard runtime hook APIs; standard Roblox clients cannot install it.
--- MM2-specific remote-call adaptation; reference: Aluxis/MM2-Utilities main.lua.
--- Independently implemented: only the equipped gun's existing ShootGun call is amended.
-SilentAim=(function()
-    local api,installed,remote,gun,point,expires={},false,nil,nil,nil,0
-    local status="Off"
-    local resolvedGun,resolvedRemote,nextLookup=nil,nil,0
-    function api.Stop() remote=nil;gun=nil;point=nil;expires=0 end
-    function api.Install()
-        if installed then return true end
-        if type(hookmetamethod)~="function" or type(getnamecallmethod)~="function" then
-            status="Unavailable · remote hook APIs missing";return false
-        end
-        local wrap=type(newcclosure)=="function" and newcclosure or function(fn) return fn end
-        local previous
-        local ok=pcall(function()
-            previous=hookmetamethod(game,"__namecall",wrap(function(object,...)
-                -- No camera, mouse, raycast or unrelated remote interception.
-                if running and settings.silentAim and object==remote and getnamecallmethod()=="InvokeServer" then
-                    local args=table.pack(...)
-                    local safe,redirected=pcall(function()
-                        if not gun or gun.Parent~=player.Character or not point or os.clock()>expires then return false end
-                        if type(checkcaller)=="function" and checkcaller() then return false end
-                        if args.n<2 or typeof(args[2])~="Vector3" then status="Gun arguments differ · original shot preserved";return false end
-                        if math.random()*100>settings.silentHitChance then return false end
-                        args[2]=point
-                        return true
-                    end)
-                    if safe and redirected then return previous(object,table.unpack(args,1,args.n)) end
-                end
-                return previous(object,...)
-            end))
-        end)
-        if not ok then status="Remote hook installation failed";return false end
-        installed=true;status="Installed · equip a gun";return true
-    end
-    local function resolveGunRemote(held)
-        local localRemote=held:FindFirstChild("ShootGun",true)
-        if localRemote and localRemote:IsA("RemoteFunction") then return localRemote end
-        if resolvedGun==held and os.clock()<nextLookup then
-            return resolvedRemote and resolvedRemote.Parent and resolvedRemote or nil
-        end
-        resolvedGun=held;resolvedRemote=nil;nextLookup=os.clock()+3
-        local shared=game:GetService("ReplicatedStorage")
-        local found,count=nil,0
-        for _,object in ipairs(shared:GetDescendants()) do
-            if object:IsA("RemoteFunction") and object.Name:lower()=="shootgun" then found=object;count=count+1 end
-        end
-        if count==1 then resolvedRemote=found;return found end
-        if count>1 then status="Multiple ShootGun remotes · normal shots preserved"
-        else status="ShootGun not found in gun/shared storage · normal shots preserved" end
-        return nil
-    end
-    function api.Step()
-        api.Stop()
-        if not settings.silentAim then status="Off";return end
-        if not installed then status="Unavailable · hooks not installed";return end
-        local character,camera=player.Character,Workspace.CurrentCamera
-        local held=character and character:FindFirstChild("Gun")
-        if not held or not held:IsA("Tool") or not camera or not living(character) then status="Equip a gun while alive";return end
-        local shoot=resolveGunRemote(held)
-        if not shoot then return end
-        local _,target=aimTarget(camera,true)
-        if not target then status="Waiting · visible murderer in FOV";return end
-        gun=held;remote=shoot;point=target.Position+target.AssemblyLinearVelocity*.025;expires=os.clock()+.15
-        status="Ready · MM2 ShootGun redirection"
-    end
-    function api.Status() return status end
-    return api
-end)()
-toggle(UIRefs.assistance,"Silent aim · gun only","silentAim",function(enabled)
-    if enabled and not SilentAim.Install() then
-        settings.silentAim=false
-        if stateRefreshers.silentAim then stateRefreshers.silentAim() end
-        notify(SilentAim.Status(),true)
-    end
-    if enabled and settings.silentAim and stateAppliers.aim then stateAppliers.aim(false) end
-    if not enabled then SilentAim.Stop() end
-end)
-slider(UIRefs.assistance,"Silent aim hit chance","silentHitChance",0,100,function(v) return string.format("%.0f%%",v) end)
 toggle(UIRefs.assistance,"Free camera while holding a gun","freeGunCamera")
-UIRefs.silentStatus=label(UIRefs.assistance,"Off",12,colors.muted)
-UIRefs.silentStatus.TextWrapped=true;UIRefs.silentStatus.Size=UDim2.new(1,-2,0,44)
-UIRefs.silentStatus:SetAttribute("SearchText","Silent aim status")
 local GunMarker = (function()
     local api, blend, lastTargetPosition, tracked = {}, 0, nil, nil
     local function muzzlePosition(gun)
@@ -3242,7 +3310,7 @@ GunViewmodel=(function()
         if tool~=held then
             api.Reset();tool=held
             local root=character:FindFirstChild("HumanoidRootPart")
-            rotation=rotations[held] or held.Grip.Rotation
+            rotation=rotations[held] or (root and root.CFrame or camera.CFrame):ToObjectSpace(handle.CFrame).Rotation
             rotations[held]=rotation
         end
         return camera.CFrame*(JumpMotion and JumpMotion.Frame() or CFrame.new())*CFrame.new(.52,-.25,-1.05)*rotation
@@ -3347,27 +3415,25 @@ RunService:BindToRenderStep(cameraBinding, Enum.RenderPriority.Camera.Value + 1,
     GunViewmodel.Step()
     if GripArms then GripArms.Step(dt) end
     WireStyle.Step()
-    SilentAim.Step();UIRefs.silentStatus.Text=SilentAim.Status()
     local manual=manualGunMode()
     if manual then
-        if Automation then Automation.StopBag(true) end
         local camera=Workspace.CurrentCamera
         local character=player.Character
         local humanoid=character and character:FindFirstChildOfClass("Humanoid")
-        if camera and humanoid and not wasManualGun and not Evade.Busy() then
+        if camera and humanoid and not wasManualGun and not Evade.Busy() and not Automation.Busy() then
             camera.CameraSubject=humanoid;camera.CameraType=Enum.CameraType.Custom
         end
     end
     wasManualGun=manual and true or false
     local camera = Workspace.CurrentCamera
     GunMarker.Step(camera, dt)
-    fovCircle.Visible = camera ~= nil and (settings.aim or settings.silentAim) and settings.showFov and living(player.Character) == true
+    fovCircle.Visible = camera ~= nil and settings.aim and settings.showFov and living(player.Character) == true
     Automation.AimBagCamera(camera)
     fovCircle.Size = UDim2.fromOffset(settings.fov * 2, settings.fov * 2)
     selectedTarget = nil
     dodgeIndicator.Visible = Evade.Busy()
     if Evade.Busy() then Evade.Camera(); return end
-    if not camera or sweepState or Scare.Busy() or Fling.Busy() or (Automation and Automation.Busy()) or manualGunMode() or settings.silentAim or not settings.aim or not aiming or UIS:GetFocusedTextBox() or camera.CameraType == Enum.CameraType.Scriptable then return end
+    if not camera or sweepState or Scare.Busy() or Fling.Busy() or (Automation and Automation.Busy()) or manualGunMode() or not settings.aim or not aiming or UIS:GetFocusedTextBox() or camera.CameraType == Enum.CameraType.Scriptable then return end
     local target, part = aimTarget(camera)
     if target and part then
         selectedTarget = target
@@ -3494,7 +3560,7 @@ connect(RunService.Heartbeat, function(dt)
     if elapsed < 0.2 then return end
     elapsed = 0
     local camera = Workspace.CurrentCamera
-    if camera then scale.Scale = math.clamp(math.min((camera.ViewportSize.X - 28) / 760, (camera.ViewportSize.Y - 28) / 540), 0.3, 1) end
+    if camera then scale.Scale = math.clamp(math.min((camera.ViewportSize.X - 40) / 920, (camera.ViewportSize.Y - 40) / 640), 0.3, 1) end
     for _, other in ipairs(Players:GetPlayers()) do refreshPlayer(other) end
     for instance in pairs(gunDrops) do
         local part=instance.Parent and dropPart(instance)
@@ -3538,7 +3604,6 @@ cleanup = function()
     if Voidglass then Voidglass.Reset() end
     if Inspect then Inspect.Reset() end
     if Skins then Skins.Reset() end
-    if SilentAim then SilentAim.Stop() end
     if WireStyle then WireStyle.Destroy() end
     if GunViewmodel then GunViewmodel.Reset() end
     if GripArms then GripArms.Destroy() end
@@ -3575,10 +3640,12 @@ local triangles={{1,-0.15,0.035,0,-0.205,0.1,0,0,0.1,0.068},{1,-0.15,0.035,0,0,0
     local palmRoll=0
     local viewModel,viewCopies,authored,viewHidden=nil,{},{},{}
     local authoredComponents,viewComponents,viewWireGroups={},{},{}
+    local viewRigidGroups,viewGestureHidden={},nil
     local inspectPose=CFrame.new()
     local function clearFirstPerson()
         for part,value in pairs(viewHidden) do if part.Parent then part.LocalTransparencyModifier=value end end
         table.clear(viewHidden);table.clear(viewCopies);table.clear(viewComponents);table.clear(viewWireGroups)
+        table.clear(viewRigidGroups);viewGestureHidden=nil
         if viewModel then viewModel:Destroy();viewModel=nil end
         inspectPose=CFrame.new()
     end
@@ -3681,7 +3748,7 @@ local triangles={{1,-0.15,0.035,0,-0.205,0.1,0,0,0.1,0.068},{1,-0.15,0.035,0,0,0
         end
         baseGrip=CFrame.Angles(math.rad(settings.voidglassPitch),math.rad(settings.voidglassYaw),math.rad(settings.voidglassRoll))
         tool.Grip=baseGrip
-        activation=tool.Activated:Connect(function() api.Inspect() end)
+        activation=tool.Activated:Connect(function() api.StartLeftShake() end)
         tool.Parent=backpack
     end
     -- Hand-authored poses from the visual reference, not extracted animation data.
@@ -3699,10 +3766,11 @@ local triangles={{1,-0.15,0.035,0,-0.205,0.1,0,0,0.1,0.068},{1,-0.15,0.035,0,0,0
     local function butterflyActive() return tool and tool.Name:find("BUTTERFLY",1,true)~=nil end
     local function inspectDuration() return butterflyActive() and 1.35 or kunaiActive() and 1.25 or .85 end
     local butterflyKeys={
-        {0,0,0,0,0,0,0},{.12,.003,.004,0,2,-1.5,-3},
-        {.25,-.003,.007,-.003,-2,2,4},{.40,-.006,.010,-.004,-3.5,-2,5},
-        {.58,.012,.025,0,8,9,-18},{.69,-.004,.080,-.012,-27,-2,12},
-        {.79,-.008,.040,-.008,-12,-5,15},{.90,.004,.018,.004,9,2,-7},
+        {0,0,0,0,0,0,0},{.055,.002,.003,0,-4,-2,7},
+        {.12,.003,.006,0,3,-1.5,-5},{.25,-.003,.007,-.003,-2,2,4},{.40,-.006,.010,-.004,-3.5,-2,5},
+        {.56,.010,.022,0,6,5,-12},{.61,.004,.030,-.003,-2,-20,-5},
+        {.70,-.003,.052,-.008,-18,-90,18},{.755,-.004,.055,-.008,-22,-110,22},
+        {.81,-.002,.038,-.004,-12,-104,15},{.92,.003,.010,.002,4,-16,-3},
         {1,0,0,0,0,0,0},
     }
     function api.StabPhase()
@@ -3715,10 +3783,18 @@ local triangles={{1,-0.15,0.035,0,-0.205,0.1,0,0,0.1,0.068},{1,-0.15,0.035,0,0,0
         {1,0,0,0,0,0,0},
     }
     local jabKeys={
-        {0,0,0,0,0,0,0},{.20,.045,.13,.025,-18,6,-12},
-        {.40,-.045,-.12,-.06,18,-6,14},{.50,-.035,-.075,-.035,10,-3,8},
-        {.78,.012,-.012,.025,2,2,-3},{1,0,0,0,0,0,0},
+        {0,0,0,0,0,0,0},{.18,-.075,.045,-.025,-8,-14,24},
+        {.40,.10,-.035,-.68,-14,-8,-38},{.53,.105,-.045,-.50,-10,-5,-29},
+        {.76,.025,-.010,-.085,-2,-1,-7},{1,0,0,0,0,0,0},
     }
+    function api.StartLeftShake()
+        if menuOpen or UIS:GetFocusedTextBox() then return end
+        local camera=Workspace.CurrentCamera
+        if not butterflyActive() or not api.Equipped() or not camera or not living(player.Character)
+            or (camera.CFrame.Position-camera.Focus.Position).Magnitude>=1.2 then return end
+        if stabStarted then return end
+        shakeStarted=os.clock()
+    end
     function api.LeftShake()
         if not shakeStarted then return nil end
         local p=(os.clock()-shakeStarted)/.80
@@ -3791,21 +3867,30 @@ local triangles={{1,-0.15,0.035,0,-0.205,0.1,0,0,0.1,0.068},{1,-0.15,0.035,0,0,0
         local adjustment=CFrame.Angles(math.rad(settings.voidglassPitch-90),math.rad(settings.voidglassYaw),math.rad(settings.voidglassRoll+20))
         position=position+camera.CFrame:VectorToWorldSpace(Vector3.new(settings.knifeOffsetX,settings.knifeOffsetY,settings.knifeOffsetZ))
         local target=CFrame.new(position)*camera.CFrame.Rotation*(settings.customArms and JumpMotion and JumpMotion.Frame().Rotation or CFrame.new())*api.HandMotion().Rotation*basis*adjustment*inspectPose
+        local inspectPhase=butterflyActive() and api.InspectPhase()
+        if inspectPhase and settings.customArms and GripArms then
+            local neutral=GripArms.RightBase(camera)
+            local gripOffset=Vector3.new(.03,-.08,-.04)+Vector3.new(settings.knifeOffsetX,settings.knifeOffsetY,settings.knifeOffsetZ)
+            local neutralPosition=neutral.Position+camera.CFrame:VectorToWorldSpace(gripOffset)
+            local neutralKnife=CFrame.new(neutralPosition)*camera.CFrame.Rotation
+                *(JumpMotion and JumpMotion.Frame().Rotation or CFrame.new())*basis*adjustment*inspectPose
+            target=GripArms.RightPose(camera)*neutral:ToObjectSpace(neutralKnife)
+        end
         if stabStarted then
             local blade=Vector3.new(-.20,.32,-.93).Unit
             if stabKind=="jab" then
                 -- Forward grip: blade exits above thumb/index, never below the fist.
-                local sweep=math.clamp((api.StabPhase()-.16)/.48,0,1)
-                local start=Vector3.new(.35,.80,-.48)
-                local finish=Vector3.new(-.83,.20,-.51)
+                local sweep=math.clamp((api.StabPhase()-.18)/.24,0,1)
+                local start=Vector3.new(-.65,.62,-.43)
+                local finish=Vector3.new(.65,.58,-.49)
                 blade=start:Lerp(finish,sweep).Unit
             end
             local across=Vector3.new(blade.Y,-blade.X,0).Unit
             local stabBasis=CFrame.fromMatrix(Vector3.zero,across,blade,across:Cross(blade))
             local stabFrame=CFrame.new(position)*camera.CFrame.Rotation*stabBasis
             if stabKind=="jab" then
-                local sweep=math.clamp((api.StabPhase()-.16)/.48,0,1)
-                stabFrame=stabFrame*CFrame.Angles(0,math.rad(-18+12*sweep),0)
+                local sweep=math.clamp((api.StabPhase()-.18)/.24,0,1)
+                stabFrame=stabFrame*CFrame.Angles(0,math.rad(12-24*sweep),0)
             end
             target=target:Lerp(stabFrame,api.StabExtension())
             -- Palm roll: rotate about the handle's longitudinal axis. Its centreline
@@ -3817,6 +3902,14 @@ local triangles={{1,-0.15,0.035,0,-0.205,0.1,0,0,0.1,0.068},{1,-0.15,0.035,0,0,0
             local away=math.sin(math.pi*math.clamp(recovery/.65,0,1))^2
             target=target*CFrame.Angles(math.rad(-14)*away,0,0)*CFrame.Angles(0,math.pi*turn,0)
         end
+        if stabStarted and stabKind=="jab" and settings.customArms and GripArms then
+            -- One grip transform drives the knife, palm, wrist and forearm together.
+            local neutral=GripArms.RightBase(camera)
+            local gripOffset=Vector3.new(.03,-.08,-.04)+Vector3.new(settings.knifeOffsetX,settings.knifeOffsetY,settings.knifeOffsetZ)
+            local neutralKnife=CFrame.new(neutral.Position+camera.CFrame:VectorToWorldSpace(gripOffset))
+                *camera.CFrame.Rotation*(JumpMotion and JumpMotion.Frame().Rotation or CFrame.new())*basis*adjustment
+            target=GripArms.RightPose(camera)*neutral:ToObjectSpace(neutralKnife)
+        end
         -- Retain the resulting face after a completed half-turn.
         target=target*CFrame.Angles(0,palmRoll,0)
         if not viewModel then
@@ -3827,7 +3920,13 @@ local triangles={{1,-0.15,0.035,0,-0.205,0.1,0,0,0.1,0.068},{1,-0.15,0.035,0,0,0
                     -- The viewmodel has no joints to the Tool or character.
                     for _,child in ipairs(copy:GetChildren()) do if not child:IsA("DataModelMesh") then child:Destroy() end end
                     copy.Anchored=true;copy.CanCollide=false;copy.CanTouch=false;copy.CanQuery=false
-                    copy.Massless=true;copy.LocalTransparencyModifier=0;copy.Parent=viewModel
+                    copy.Massless=true;copy.LocalTransparencyModifier=0;copy.CastShadow=false
+                    local component=authoredComponents[source] or 0
+                    if not viewRigidGroups[component] then
+                        viewRigidGroups[component]=make("Model",{Name="KnifeComponent"..component},viewModel)
+                    end
+                    copy.CFrame=CFrame.new(relative.Position*.48)*relative.Rotation
+                    copy.Parent=viewRigidGroups[component]
                     copy.Size=source.Size*.48
                     if WireStyle then
                         local component=authoredComponents[source] or 0
@@ -3840,23 +3939,34 @@ local triangles={{1,-0.15,0.035,0,-0.205,0.1,0,0,0.1,0.068},{1,-0.15,0.035,0,0,0
                 end
             end
         end
-        for source in pairs(viewHidden) do if source.Parent then source.LocalTransparencyModifier=1 end end
-        for copy,relative in pairs(viewCopies) do
-            copy.LocalTransparencyModifier=BunnyHop and BunnyHop.GesturePhase() and 1 or 0
-            local component=viewComponents[copy]
-            if butterflyActive() and component and component~=0 and started then
+        for source in pairs(viewHidden) do
+            if source.Parent and source.LocalTransparencyModifier~=1 then source.LocalTransparencyModifier=1 end
+        end
+        local hidden=BunnyHop and BunnyHop.GesturePhase() and true or false
+        if hidden~=viewGestureHidden then
+            for copy in pairs(viewCopies) do copy.LocalTransparencyModifier=hidden and 1 or 0 end
+            viewGestureHidden=hidden
+        end
+        for component,group in pairs(viewRigidGroups) do
+            if not group:GetAttribute("PivotReady") then group.WorldPivot=CFrame.new();group:SetAttribute("PivotReady",true) end
+            local frame=target
+            if butterflyActive() and component~=0 and started then
                 local phase=math.clamp((os.clock()-started)/inspectDuration(),0,1)
-                local keys={{0,0},{.16,95},{.34,185},{.52,350},{.73,350},{.83,185},{.94,0},{1,0}}
+                local keys={{0,0},{.055,0},{.19,95},{.34,185},{.52,350},{.73,350},{.83,185},{.94,0},{1,0}}
                 local angle=0
                 for i=2,#keys do
                     local a,b=keys[i-1],keys[i]
                     if phase<=b[1] then local u=(phase-a[1])/(b[1]-a[1]);u=u*u*(3-2*u);angle=a[2]+(b[2]-a[2])*u;break end
                 end
-                if component==-1 then angle=-angle*.12 end
+                if component==-1 then
+                    local function ease(x) x=math.clamp(x,0,1);return x*x*(3-2*x) end
+                    local thumbPush=ease((phase-.055)/.105)*(1-ease((phase-.22)/.12))
+                    angle=-angle*.12-18*thumbPush
+                end
                 local hinge=CFrame.new(component*.10*.65*settings.knifeSize*.48,.59*.65*settings.knifeSize*.48,0)
-                relative=hinge*CFrame.Angles(0,0,math.rad(angle))*hinge:Inverse()*relative
+                frame=target*hinge*CFrame.Angles(0,0,math.rad(angle))*hinge:Inverse()
             end
-            copy.CFrame=target*relative
+            group:PivotTo(frame)
         end
     end
     function api.Step()
@@ -3895,7 +4005,7 @@ local triangles={{1,-0.15,0.035,0,-0.205,0.1,0,0,0.1,0.068},{1,-0.15,0.035,0,0,0
             local earlyWeight=.2+.8*earlyBlend*earlyBlend*(3-2*earlyBlend)
             local lift=math.sin(math.pi*t)*earlyWeight
             local finalFlick=math.sin(math.pi*math.clamp((t-.59)/.22,0,1))^2
-            inspectPose=CFrame.Angles(math.rad(-10)*lift-math.rad(16)*finalFlick,math.rad(18)*math.sin(t*math.pi*2)*earlyWeight,math.rad(24)*math.sin(t*math.pi*2)*earlyWeight)
+            inspectPose=CFrame.Angles(math.rad(-10)*lift-math.rad(10)*finalFlick,math.rad(18)*math.sin(t*math.pi*2)*earlyWeight,math.rad(24)*math.sin(t*math.pi*2)*earlyWeight)
         elseif kunaiActive() then
             -- Controlled blade presentation; no toss or finger transfer.
             local keys={
@@ -3971,9 +4081,12 @@ Inspect = (function()
         local camera=Workspace.CurrentCamera
         local held=CFrame.new(camera.CFrame:VectorToWorldSpace(Vector3.new(-0.04,0.10,0.04))*lift)
             *base*CFrame.Angles(math.rad(-8)*lift,0,math.rad(-5)*lift)
-        if arms then
-            return held*CFrame.Angles(math.rad(-5)*math.sin(spin),0,0)
-        end
+        local kick=smooth((t-.04)/.10)*(1-smooth((t-.18)/.14))
+        local catch=smooth((t-.70)/.06)*(1-smooth((t-.80)/.16))
+        local wrist=math.rad(-22)*kick+math.rad(9)*catch
+        local pivot=held.Position
+        held=CFrame.new(pivot)*CFrame.fromAxisAngle(camera.CFrame.RightVector,wrist)*CFrame.new(-pivot)*held
+        if arms then return held end
         -- Single forward revolver twirl about the trigger/finger area, in the camera's side plane.
         local pivot=(held*CFrame.new(0,0.12,-0.12)).Position
         return CFrame.new(pivot)*CFrame.fromAxisAngle(camera.CFrame.RightVector,-spin)*CFrame.new(-pivot)*held
@@ -4035,7 +4148,7 @@ end)
 connect(UIS.InputBegan,function(input,processed)
     if not processed and not UIS:GetFocusedTextBox() and not menuOpen then
         if input.UserInputType==Enum.UserInputType.MouseButton2 then Voidglass.Stab()
-        elseif input.UserInputType==Enum.UserInputType.MouseButton1 then Voidglass.Stab("jab") end
+        end
     end
 end)
 button(UIRefs.skinsPage,"Single revolver spin · V",function() Inspect.Start() end)
@@ -4235,12 +4348,15 @@ end
 Ambience = (function()
     local api, snapshot, originalSky, originalSkyParent, originalAtmosphere, originalAtmosphereParent = {}, nil, nil, nil, nil, nil
     local owned = {}
+    local originalCloud,cloudParent
     local Lighting = game:GetService("Lighting")
     local properties={"ClockTime","Brightness","ExposureCompensation","FogStart","FogEnd","FogColor","Ambient","OutdoorAmbient"}
     function api.Reset()
         for _,object in pairs(owned) do object:Destroy() end
         table.clear(owned)
         if snapshot then for key,value in pairs(snapshot) do Lighting[key]=value end end
+        if originalCloud then originalCloud.Parent=cloudParent end
+        originalCloud,cloudParent=nil,nil
         if originalSky then originalSky.Parent=originalSkyParent end
         if originalAtmosphere then originalAtmosphere.Parent=originalAtmosphereParent end
         snapshot,originalSky,originalSkyParent,originalAtmosphere,originalAtmosphereParent=nil,nil,nil,nil,nil
@@ -4255,6 +4371,9 @@ Ambience = (function()
         owned.sky=originalSky and originalSky:Clone() or Instance.new("Sky")
         owned.sky.Name="StarfireSky";owned.sky.Parent=Lighting
         if originalSky then originalSky.Parent=nil end
+        originalCloud=Workspace.Terrain:FindFirstChildOfClass("Clouds")
+        if originalCloud then cloudParent=originalCloud.Parent;originalCloud.Parent=nil end
+        owned.clouds=make("Clouds",{Name="StellClouds"},Workspace.Terrain)
         owned.atmosphere=make("Atmosphere",{Name="StarfireAtmosphere"})
         owned.bloom=make("BloomEffect",{Name="StarfireBloom",Threshold=1,Size=24},Lighting)
         owned.grade=make("ColorCorrectionEffect",{Name="StarfireColourGrade"},Lighting)
@@ -4275,8 +4394,14 @@ Ambience = (function()
         Lighting.OutdoorAmbient=Color3.fromRGB(100,100,110):Lerp(tint,0.15)
         -- Classic fog and Atmosphere are separate modes; Atmosphere otherwise suppresses classic fog.
         owned.atmosphere.Parent=settings.ambienceAtmosphere and not settings.ambienceFog and Lighting or nil
-        owned.atmosphere.Color=tint
-        owned.atmosphere.Decay=tint:Lerp(Color3.new(0,0,0),0.65)
+        owned.atmosphere.Color=settings.skyTint and Color3.fromRGB(settings.skyRed,settings.skyGreen,settings.skyBlue) or tint
+        owned.atmosphere.Decay=settings.skyTint and Color3.fromRGB(settings.horizonRed,settings.horizonGreen,settings.horizonBlue) or tint:Lerp(Color3.new(0,0,0),.65)
+        owned.atmosphere.Glare=settings.atmosphereGlare;owned.atmosphere.Offset=settings.atmosphereOffset
+        owned.clouds.Enabled=settings.ambienceClouds
+        owned.clouds.Cover=settings.cloudCover;owned.clouds.Density=settings.cloudDensity
+        owned.clouds.Color=Color3.fromRGB(settings.cloudRed,settings.cloudGreen,settings.cloudBlue)
+        owned.sky.SkyboxOrientation=Vector3.new(0,settings.skyRotation,0)
+        owned.sky.SunAngularSize=settings.sunSize;owned.sky.MoonAngularSize=settings.moonSize
         owned.atmosphere.Density=settings.ambienceDensity
         owned.atmosphere.Haze=settings.ambienceHaze
         owned.sky.StarCount=math.floor(settings.ambienceStars)
@@ -4327,6 +4452,23 @@ for _,control in ipairs({{"Classic fog · takes priority","ambienceFog"},{"Atmos
     toggle(UIRefs.ambiencePage,control[1],control[2])
 end
 UIRefs.ColourPicker(UIRefs.ambiencePage,"Ambience colour",{"ambienceRed","ambienceGreen","ambienceBlue"})
+
+section(UIRefs.ambiencePage,"Sky and clouds")
+toggle(UIRefs.ambiencePage,"Custom sky tint · atmosphere mode","skyTint",function(enabled)
+    if enabled then settings.ambienceFog=false;settings.ambienceAtmosphere=true
+        if stateRefreshers.ambienceFog then stateRefreshers.ambienceFog() end
+        if stateRefreshers.ambienceAtmosphere then stateRefreshers.ambienceAtmosphere() end
+    end
+end)
+UIRefs.ColourPicker(UIRefs.ambiencePage,"Sky tint",{"skyRed","skyGreen","skyBlue"})
+UIRefs.ColourPicker(UIRefs.ambiencePage,"Horizon tint",{"horizonRed","horizonGreen","horizonBlue"})
+UIRefs.ColourPicker(UIRefs.ambiencePage,"Cloud colour",{"cloudRed","cloudGreen","cloudBlue"})
+toggle(UIRefs.ambiencePage,"Dynamic clouds","ambienceClouds")
+for _,entry in ipairs({{"Cloud cover","cloudCover",0,1},{"Cloud density","cloudDensity",0,1},
+    {"Sky rotation","skyRotation",0,360},{"Sun size","sunSize",0,30},{"Moon size","moonSize",0,40},
+    {"Atmosphere glare","atmosphereGlare",0,5},{"Horizon offset","atmosphereOffset",-1,1}}) do
+    slider(UIRefs.ambiencePage,entry[1],entry[2],entry[3],entry[4],function(v) return string.format("%.2f",v) end)
+end
 
 -- Visual settings adapted from PShade Ultimate 1.4.9, @Im_patrick / randomstring0.
 -- Presets are bundled data; no remote script execution, feedback, blacklist, or hidden-property calls.
@@ -4466,6 +4608,51 @@ Tracers = (function()
         end
         return false
     end
+    local function drawPath(origin,destination,line)
+        local length=(destination-origin).Magnitude
+        if length<.01 then return line end
+        if not line or not line.part.Parent then
+            local part=make("Part",{Name="StarfireBulletTracer",Anchored=true,CanCollide=false,CanTouch=false,
+                CanQuery=false,CastShadow=false,Material=Enum.Material.Neon,Transparency=.1,
+                Color=Color3.fromRGB(settings.tracerRed,settings.tracerGreen,settings.tracerBlue)},effects)
+            line={part=part,time=os.clock(),life=settings.tracerLife};table.insert(lines,line)
+            if #lines>150 then lines[1].part:Destroy();table.remove(lines,1) end
+        end
+        line.origin,line.destination=origin,destination
+        line.part.Size=Vector3.new(settings.tracerWidth,settings.tracerWidth,length)
+        line.part.CFrame=CFrame.lookAt((origin+destination)/2,destination)
+        return line
+    end
+    local function nativeEndpoints(object)
+        if object:IsA("Beam") then
+            local a,b=object.Attachment0,object.Attachment1
+            if a and b and (a.WorldPosition-b.WorldPosition).Magnitude>=2 then return a.WorldPosition,b.WorldPosition end
+        elseif object:IsA("BasePart") then
+            local centre,axis=shotShape(object)
+            if centre then
+                local size=object.Size;local half=math.max(size.X,size.Y,size.Z)*.5
+                return centre-axis*half,centre+axis*half
+            end
+        end
+    end
+    local function syncNative(object,record)
+        if os.clock()-record.born>.12 then return end
+        local a,b=nativeEndpoints(object)
+        if not a then return end
+        local selected=record.line
+        if not selected then
+            local best=8
+            for _,line in ipairs(lines) do
+                if os.clock()-line.time<.35 and not line.native then
+                    local distance=math.min((line.origin-a).Magnitude,(line.origin-b).Magnitude)
+                    if distance<best then best=distance;selected=line end
+                end
+            end
+        end
+        if selected and (selected.origin-b).Magnitude<(selected.origin-a).Magnitude then a,b=b,a end
+        record.line=drawPath(a,b,selected)
+        if record.line then record.line.native=true end
+    end
     local function emit(sound, tool)
         if not settings.bulletTracers or not tool:IsDescendantOf(Workspace) then return end
         local handle = tool:FindFirstChild("Handle")
@@ -4478,7 +4665,7 @@ Tracers = (function()
         params.FilterDescendantsInstances = {character, effects}
         if character == player.Character and camera then
             local mouse = player:GetMouse()
-            local ray = camera:ViewportPointToRay(mouse.X, mouse.Y)
+            local ray = mouse.UnitRay
             local hit = Workspace:Raycast(ray.Origin, ray.Direction * 500, params)
             local destination = hit and hit.Position or (ray.Origin + ray.Direction * 500)
             local offset = destination - origin
@@ -4491,13 +4678,13 @@ Tracers = (function()
         if length < 0.01 then return end
         table.insert(recentShots,{origin=origin,direction=(destination-origin).Unit,time=os.clock()})
         if #recentShots>24 then table.remove(recentShots,1) end
-        local part = make("Part", {Name = "StarfireBulletTracer", Anchored = true, CanCollide = false,
-            CanTouch = false, CanQuery = false, CastShadow = false, Material = Enum.Material.Neon,
-            Color = Color3.fromRGB(settings.tracerRed,settings.tracerGreen,settings.tracerBlue), Transparency = 0.1,
-            Size = Vector3.new(settings.tracerWidth,settings.tracerWidth,length),
-            CFrame = CFrame.lookAt((origin+destination)/2,destination)},effects)
-        table.insert(lines,{part = part,time = os.clock(),life = settings.tracerLife})
-        if #lines > 150 then lines[1].part:Destroy();table.remove(lines,1) end
+        -- Native effects are preferred; this estimate is corrected when their path arrives.
+        local existing
+        for _,line in ipairs(lines) do
+            if line.native and os.clock()-line.time<.12 and
+                math.min((line.origin-origin).Magnitude,(line.destination-origin).Magnitude)<8 then existing=line;break end
+        end
+        if not existing and not settings.tracerExact then drawPath(origin,destination) end
     end
     local function hideNative(object)
         if object:IsDescendantOf(effects) or native[object] then return end
@@ -4515,7 +4702,8 @@ Tracers = (function()
         end
         if not identified and not matchesShot(object) then return end
         local property=beam and "Transparency" or "LocalTransparencyModifier"
-        native[object]={property=property,value=object[property]}
+        native[object]={property=property,value=object[property],born=os.clock()}
+        syncNative(object,native[object])
         object[property]=beam and NumberSequence.new(1) or 1
     end
     local function watch(object)
@@ -4543,7 +4731,7 @@ Tracers = (function()
     connect(Workspace.DescendantAdded,function(object)
         if not settings.bulletTracers then return end
         hideNative(object);watch(object)
-        if shotShape(object) then pending[object]=os.clock() end
+        if object:IsA("BasePart") or object:IsA("Beam") or object:IsA("Trail") then pending[object]=os.clock() end
         -- Some game effects receive their final name/parent after being created.
         if object:IsA("BasePart") or object:IsA("Beam") or object:IsA("Trail") or object:IsA("Sound") then
             task.defer(function()
@@ -4562,7 +4750,10 @@ Tracers = (function()
             if not object:IsDescendantOf(Workspace) then
                 if object.Parent then object[original.property]=original.value end
                 native[object]=nil
-            else object[original.property]=original.property=="Transparency" and NumberSequence.new(1) or 1 end
+            else
+                syncNative(object,original)
+                object[original.property]=original.property=="Transparency" and NumberSequence.new(1) or 1
+            end
         end
         for object,born in pairs(pending) do
             if not object.Parent or os.clock()-born>.30 then pending[object]=nil
@@ -4581,6 +4772,7 @@ Tracers = (function()
     return api
 end)()
 toggle(UIRefs.gunsPage,"Replace game bullet tracers · local","bulletTracers",function() Tracers.Start() end)
+toggle(UIRefs.gunsPage,"Use game shot paths only","tracerExact")
 slider(UIRefs.gunsPage,"Tracer lifetime","tracerLife",0.5,10,function(v) return string.format("%.1f s",v) end)
 slider(UIRefs.gunsPage,"Tracer width","tracerWidth",0.02,0.3,function(v) return string.format("%.2f",v) end)
 UIRefs.ColourPicker(UIRefs.gunsPage,"Tracer colour",{"tracerRed","tracerGreen","tracerBlue"})
@@ -4663,6 +4855,20 @@ GripArms = (function()
             *CFrame.new(settings.customArmX,settings.customArmY,settings.customArmZ)
     end
     function api.RightPose(camera)
+        local held=player.Character and player.Character:FindFirstChildOfClass("Tool")
+        local inspectPhase=held and held.Name:find("BUTTERFLY",1,true) and Voidglass and Voidglass.InspectPhase()
+        if inspectPhase then
+            local motion=Voidglass.HandMotion()
+            local hinge=CFrame.new(0,.12,0)
+            return api.RightBase(camera)*CFrame.new(motion.Position)*hinge*motion.Rotation*hinge:Inverse()
+        end
+        if Voidglass and Voidglass.Jabbing and Voidglass.Jabbing() then
+            local motion=Voidglass.HandMotion()
+            local hinge=CFrame.new(0,.12,0)
+            local base=api.RightBase(camera)
+            local position=base.Position+camera.CFrame:VectorToWorldSpace(motion.Position)
+            return CFrame.new(position)*base.Rotation*hinge*motion.Rotation*hinge:Inverse()
+        end
         local motion=Voidglass and Voidglass.Equipped() and Voidglass.HandMotion and Voidglass.HandMotion() or CFrame.new()
         local pose=camera.CFrame*(JumpMotion and JumpMotion.Frame() or CFrame.new())*motion*CFrame.new(.52,-.25,-1.05)
             *CFrame.Angles(math.rad(125),0,math.rad(-25))
@@ -4790,12 +4996,12 @@ GripArms = (function()
             rig.shakeForearm=nil
             if side=="Left" then
                 local knifePhase=Voidglass and (Voidglass.StabPhase() or Voidglass.InspectPhase())
-                local wanted=knifePhase and 1 or 0
+                local wanted=(knifePhase or gun) and 1 or 0
                 -- Preserve the retreat across repeated inspect presses; no arm snapping.
-                rig.retreat=(rig.retreat or 0)+(wanted-(rig.retreat or 0))*(1-math.exp(-(wanted==1 and 15 or 5.5)*math.min(dt or 1/60,.1)))
+                rig.retreat=(rig.retreat or 0)+(wanted-(rig.retreat or 0))*(1-math.exp(-(wanted==1 and 7 or 5.5)*math.min(dt or 1/60,.1)))
                 local withdraw=rig.retreat*rig.retreat*(3-2*rig.retreat)
                 local resting=CFrame.new(-.62,-.38,-1.12)*CFrame.Angles(math.rad(125),0,math.rad(35))
-                local lowered=CFrame.new(-.83,-1.20,-.68)*CFrame.Angles(math.rad(145),math.rad(-12),math.rad(52))
+                local lowered=CFrame.new(-.69,-1.25,-.83)*CFrame.Angles(math.rad(148),math.rad(-5),math.rad(40))
                 pose=camera.CFrame*(JumpMotion and JumpMotion.Frame() or CFrame.new())*resting:Lerp(lowered,withdraw)
                 local shake=Voidglass and Voidglass.LeftShake()
                 if shake then
@@ -4807,7 +5013,7 @@ GripArms = (function()
                         local a,b=keys[i-1],keys[i]
                         if shake<=b[1] then wave=a[2]+(b[2]-a[2])*ease((shake-a[1])/(b[1]-a[1]));break end
                     end
-                    local reaction=CFrame.new(-.44,-.19,-1.08)*CFrame.Angles(math.rad(108),math.rad(52),math.rad(48))
+                    local reaction=CFrame.new(-.73,-.22,-1.08)*CFrame.Angles(math.rad(108),math.rad(52),math.rad(48))
                     local forearm=camera.CFrame*(JumpMotion and JumpMotion.Frame() or CFrame.new())*resting:Lerp(reaction,envelope)
                     rig.shakeForearm=forearm
                     local hinge=CFrame.new(0,.12,0)
@@ -4818,35 +5024,70 @@ GripArms = (function()
             pose=pose*CFrame.new(settings.customArmX,settings.customArmY,settings.customArmZ)
             if Inspect then pose=Inspect.TransformArm(pose) end
             if side=="Right" then pose=api.RightPose(camera) else pose=api.GesturePose(camera,side,pose) end
-            rig.gunWeight=(rig.gunWeight or 0)+((gun and 1 or 0)-(rig.gunWeight or 0))*(1-math.exp(-22*math.min(dt or 1/60,.1)))
-            if gun then
+            rig.gunWeight=(rig.gunWeight or 0)+((gun and side=="Right" and 1 or 0)-(rig.gunWeight or 0))*(1-math.exp(-22*math.min(dt or 1/60,.1)))
+            if gun and side=="Right" then
                 local stable=GunViewmodel and GunViewmodel.Frame(camera) or gun.CFrame
                 local anchor=Inspect and Inspect.GripFrame(stable) or stable
                 local grip=anchor.Position-camera.CFrame.UpVector*.045+camera.CFrame.LookVector*.025
-                local support=side=="Left" and (-camera.CFrame.RightVector*.145-camera.CFrame.UpVector*.025+camera.CFrame.LookVector*.025) or Vector3.zero
-                local gunPose=CFrame.new(grip+support)*camera.CFrame.Rotation
-                    *CFrame.Angles(math.rad(125),math.rad(side=="Left" and 12 or 0),math.rad(side=="Left" and 32 or -25))
+                local wristRotation=anchor.Rotation*stable.Rotation:Inverse()
+                local gunPose=CFrame.new(grip)*wristRotation*camera.CFrame.Rotation
+                    *CFrame.Angles(math.rad(125),0,math.rad(-25))
                 local gunInspect=Inspect and Inspect.Phase()
-                if gunInspect and side=="Left" then
-                    local enter=math.clamp(gunInspect/.13,0,1)
-                    local leave=math.clamp((gunInspect-.80)/.20,0,1)
-                    local away=enter*(1-leave)
-                    gunPose=gunPose:Lerp(camera.CFrame*CFrame.new(-.60,-1.20,-.80)
-                        *CFrame.Angles(math.rad(145),0,math.rad(35)),away)
-                end
                 pose=pose:Lerp(api.GesturePose(camera,side,gunPose),rig.gunWeight)
+            end
+            -- Relaxed empty hands with occasional independent finger gestures.
+            local now=os.clock()
+            if held then
+                rig.idleStart=nil;rig.idleNext=nil;rig.idleAmount=0
+            else
+                rig.idleNext=rig.idleNext or now+math.random(4,9)
+                if not rig.idleStart and now>=rig.idleNext then
+                    rig.idleStart=now;rig.idleDuration=math.random(18,26)/10
+                    rig.idleVariant=math.random(1,4)
+                end
+                if rig.idleStart then
+                    local phase=(now-rig.idleStart)/rig.idleDuration
+                    if phase>=1 then
+                        rig.idleStart=nil;rig.idleNext=now+math.random(6,12);rig.idleAmount=0
+                    else rig.idleAmount=math.sin(math.pi*phase)^2 end
+                else rig.idleAmount=0 end
+            end
+            if not held and (rig.idleAmount or 0)>0 then
+                local amount=rig.idleAmount
+                local sideSign=side=="Left" and -1 or 1
+                local localPose=camera.CFrame:ToObjectSpace(pose)
+                local movement=Vector3.new(sideSign*.012,.018,-.012)*amount
+                pose=camera.CFrame*CFrame.new(movement)*localPose
+                    *CFrame.Angles(math.rad(-2.5)*amount,math.rad(sideSign*2)*amount,math.rad(sideSign*2.5)*amount)
+            end
+            if side=="Left" then
+                -- Smooth the pose in camera space so transitions ease down without camera lag.
+                local desired=camera.CFrame:ToObjectSpace(pose)
+                local rate=rig.shakeForearm and 24 or 11
+                rig.displayPose=rig.displayPose and rig.displayPose:Lerp(desired,1-math.exp(-rate*math.min(dt or 1/60,.1))) or desired
+                pose=camera.CFrame*rig.displayPose
             end
             local gloveColor=color
             rig.palm.CFrame=pose;rig.palm.Color=gloveColor
             for _,entry in ipairs(rig.fixed) do
-                local frame=pose
-                if side=="Right" and Voidglass and Voidglass.Jabbing() and
-                    (entry.part.Name=="Rounded forearm" or entry.part.Name=="Forearm rounded cap" or entry.part.Name=="Lower forearm blend" or entry.part.Name=="Wrist blend") then
-                    frame=api.RightBase(camera):Lerp(pose,.25)
+                if side=="Left" then
+                    local shaking=rig.shakeForearm~=nil
+                    if entry.part.Name=="Wrist blend" then
+                        entry.part.Size=Vector3.new(.20,.49,.14)
+                        entry.offset=CFrame.new(0,.115,0)
+                    elseif entry.part.Name=="Lower forearm blend" then
+                        entry.part.Size=Vector3.new(.215,shaking and .46 or .69,.17)
+                        entry.offset=CFrame.new(0,shaking and .39 or .34,0)
+                    end
                 end
-                if side=="Left" and rig.shakeForearm and
-                    (entry.part.Name=="Rounded forearm" or entry.part.Name=="Forearm rounded cap" or entry.part.Name=="Lower forearm blend" or entry.part.Name=="Wrist blend") then
-                    frame=rig.shakeForearm
+                local frame=pose
+                if side=="Left" and rig.shakeForearm then
+                    if entry.part.Name=="Rounded forearm" or entry.part.Name=="Forearm rounded cap" then
+                        frame=rig.shakeForearm
+                    elseif entry.part.Name=="Lower forearm blend" then
+                        frame=rig.shakeForearm:Lerp(pose,.40)
+                    end
+                    -- The restored wrist follows the palm; the lower blend bridges the bend.
                 end
                 entry.part.CFrame=frame*entry.offset
                 entry.part.Color=entry.tint or ((entry.part.Name=="Thumb pad" or entry.part.Name=="Wrist blend") and gloveColor or color)
@@ -4889,27 +5130,39 @@ GripArms = (function()
                     flex=math.rad(bends[entry.bone]);spread=0;thumbOpen=0
                     if entry.finger==5 and entry.bone==1 then thumbOpen=math.rad(side=="Left" and 16 or -12) end
                 end
+                if gun and side=="Right" then
+                    local angles=entry.finger==1 and {18,38,24} or entry.finger==5 and {36,44,28} or {54,68,42}
+                    flex=math.rad(angles[entry.bone]);spread=0
+                    thumbOpen=entry.finger==5 and math.rad(10) or 0
+                end
                 local gunInspect=gun and Inspect and Inspect.Phase()
                 if gunInspect and side=="Right" then
                     local spinWindow=math.clamp((gunInspect-.12)/.10,0,1)*(1-math.clamp((gunInspect-.75)/.15,0,1))
-                    if entry.finger==1 then flex=math.rad(({14,38,28})[entry.bone])
-                    elseif entry.finger==5 then flex=math.rad(24)*(1-spinWindow*.65);thumbOpen=-math.rad(20)*spinWindow
-                    else flex=flex*(1-spinWindow*.88);spread=math.rad((entry.finger-2)*6)*spinWindow end
+                    if entry.finger==1 then flex=math.rad(({22,44,28})[entry.bone])
+                    elseif entry.finger==5 then
+                        flex=flex*(1-spinWindow*.20);thumbOpen=math.rad(10)-math.rad(12)*spinWindow
+                    else
+                        flex=flex*(1-spinWindow*.30)
+                        spread=entry.bone==1 and math.rad((entry.finger-2)*1.5)*spinWindow or 0
+                    end
                 end
                 local butterflyPhase=side=="Right" and held and held.Name:find("BUTTERFLY",1,true)
                     and Voidglass and Voidglass.InspectPhase()
                 if butterflyPhase then
                     local p=butterflyPhase
-                    local function pulse(center,width) return math.max(0,1-math.abs(p-center)/width) end
-                    -- Thumb/index retain the safe handle; the other fingers open for each pass.
-                    local release=math.max(pulse(.30,.18),pulse(.56,.13),pulse(.73,.12))
+                    local function ease(x) x=math.clamp(x,0,1);return x*x*(3-2*x) end
+                    local push=ease((p-.02)/.065)*(1-ease((p-.15)/.12))
                     if entry.finger==1 then
-                        flex=math.rad(({48,68,46})[entry.bone])*(1-release*.2)
+                        flex=math.rad(({48,68,46})[entry.bone])
                     elseif entry.finger==5 then
-                        flex=math.rad(({35,48,30})[entry.bone]);thumbOpen=math.rad(-12)*release
+                        -- Thumb presses the handle first, then returns to its supporting grip.
+                        flex=math.rad(({46,58,36})[entry.bone])-math.rad(({25,16,8})[entry.bone])*push
+                        thumbOpen=math.rad(14)-math.rad(30)*push
+                        if entry.bone==1 then spread=math.rad(-18)*push end
                     else
-                        flex=math.rad(({65,82,56})[entry.bone])*(1-release*.85)
-                        if entry.bone==1 then spread=math.rad((entry.finger-2)*5)*release end
+                        -- Keep the three supporting fingers planted rather than fluttering.
+                        flex=math.rad(({65,82,56})[entry.bone])
+                        spread=0
                     end
                 end
                 if side=="Right" and held and held.Name:find("BUTTERFLY",1,true) and entry.finger==5 and not butterflyPhase then
@@ -4951,6 +5204,27 @@ GripArms = (function()
                     local relaxed=math.rad(entry.finger==5 and 22 or entry.finger<=2 and 5 or 18)
                     flex=flex*(1-open)+relaxed*open+math.rad(6)*flutter
                     if entry.bone==1 then spread=spread+math.rad((entry.finger-3)*2)*math.sin(math.pi*leftShake)^2 end
+                end
+                local idle=rig.idleAmount or 0
+                if idle>0 then
+                    local variant=rig.idleVariant
+                    local bend
+                    if variant==4 then
+                        -- Close fully, then relax along the same smooth idle envelope.
+                        local fist=math.rad((entry.finger==5 and {48,65,42} or {74,96,72})[entry.bone])
+                        flex=flex+(fist-flex)*idle
+                        thumbOpen=thumbOpen+(math.rad(entry.finger==5 and 16 or 0)-thumbOpen)*idle
+                        spread=spread*(1-idle)
+                        bend=0
+                    elseif variant==1 then
+                        bend=entry.finger==5 and 8 or ({7,23,18})[entry.bone]
+                    elseif variant==2 then
+                        bend=entry.finger==5 and -5 or ({-2,9,7})[entry.bone]
+                    else
+                        bend=entry.finger==5 and ({12,16,9})[entry.bone] or ({4,12,10})[entry.bone]
+                    end
+                    flex=flex+math.rad(bend)*idle
+                    if entry.bone==1 and variant~=4 then spread=spread+math.rad((entry.finger-3)*1.5)*idle end
                 end
                 entry.motor.Transform=entry.motor.Transform:Lerp(CFrame.Angles(-flex,thumbOpen,spread),alpha)
                 entry.part.CFrame=entry.parent.CFrame*entry.motor.C0*entry.motor.Transform*entry.motor.C1:Inverse()
@@ -5360,7 +5634,7 @@ local ConfigCodec = (function()
 end)()
 local Configs = (function()
     local api, profiles, selected, defaultName = {}, {}, "Default", "Default"
-    local selector, nameField, jsonField, savedList, autoLoadLabel
+    local selector, nameField, savedList, autoLoadLabel
     local savedRows={}
     local restored = false
     local folder = playerGui:FindFirstChild("StarfireMM2Profiles")
@@ -5379,7 +5653,6 @@ local Configs = (function()
     end
     local function refresh()
         if selector then selector.Text = "Config: " .. selected .. (selected == defaultName and " · default" or "") end
-        if nameField then nameField.Text = selected end
         if autoLoadLabel then autoLoadLabel.Text="Auto-load: "..defaultName end
         if savedList then
             for name,row in pairs(savedRows) do if not profiles[name] then row:Destroy();savedRows[name]=nil end end
@@ -5407,7 +5680,7 @@ local Configs = (function()
             end)
             return ok and "disk + session" or "session only · disk write failed"
         end
-        return "session only · export JSON for later"
+        return "session only · file storage unavailable"
     end
     local function decodeStore(json)
         assert(type(json) == "string" and #json <= 524288, "Invalid config store size")
@@ -5467,41 +5740,37 @@ local Configs = (function()
     function api.AutoLoad()
         if restored then protected(function() api.Load(defaultName) end) end
     end
-    nameField = make("TextBox", {Text = selected, PlaceholderText = "Config name", ClearTextOnFocus = false,
+    section(UIRefs.configsPage,"Create a config")
+    nameField = make("TextBox", {Text = "", PlaceholderText = "New config name", ClearTextOnFocus = false,
         Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = colors.text, PlaceholderColor3 = colors.muted,
-        BackgroundColor3 = colors.raised, BorderSizePixel = 0, Size = UDim2.new(1, -2, 0, 40)}, UIRefs.configsPage)
-    round(nameField, 3)
-    selector = button(UIRefs.configsPage, "Config: Default", function()
-        local sorted = names(); local index = table.find(sorted, selected) or 0
-        selected = sorted[index % #sorted + 1]; refresh()
-    end)
-    button(UIRefs.configsPage, "Save current settings", function() protected(function()
-        local name = ConfigCodec.Name(nameField.Text)
-        assert(profiles[name] or #names() < 40, "Maximum 40 configs")
-        local profile = snapshot(); ConfigCodec.Validate(profile)
-        profiles[name], selected = profile, name; refresh()
-        notify("Saved " .. name .. " · " .. persist())
-    end) end)
-    button(UIRefs.configsPage, "Save current as default", function() protected(function()
+        BackgroundColor3 = colors.raised, BorderSizePixel = 0, Size = UDim2.new(1, -2, 0, 42)}, UIRefs.configsPage)
+    round(nameField,7)
+    button(UIRefs.configsPage,"Create new · save current settings",function() protected(function()
         local name=ConfigCodec.Name(nameField.Text)
-        assert(profiles[name] or #names()<40,"Maximum 40 configs")
+        assert(not profiles[name],"That name already exists; choose another name")
+        assert(#names()<40,"Maximum 40 configs")
         local profile=snapshot();ConfigCodec.Validate(profile)
-        profiles[name]=profile;selected=name;defaultName=name;refresh()
-        notify("Current settings saved as default: "..name.." · "..persist())
+        profiles[name]=profile;selected=name;nameField.Text="";refresh()
+        notify("Created "..name.." · "..persist())
     end) end)
-    button(UIRefs.configsPage, "Load selected config", function() protected(function() api.Load(selected) end) end)
-    button(UIRefs.configsPage, "Make selected the default", function() protected(function()
-        defaultName = selected; refresh(); notify("Default: " .. selected .. " · " .. persist())
+    section(UIRefs.configsPage,"Selected config")
+    selector=label(UIRefs.configsPage,"",14,colors.purple)
+    selector.Size=UDim2.new(1,-2,0,30)
+    button(UIRefs.configsPage,"Save changes to selected",function() protected(function()
+        assert(profiles[selected],"Select a saved config")
+        local profile=snapshot();ConfigCodec.Validate(profile)
+        profiles[selected]=profile;refresh();notify("Updated "..selected.." · "..persist())
     end) end)
-    button(UIRefs.configsPage, "Delete selected config", function() protected(function()
-        assert(#names() > 1, "Keep at least one config")
-        profiles[selected] = nil; selected = names()[1]
-        if not profiles[defaultName] then defaultName = selected end
-        refresh(); notify("Config deleted · " .. persist())
+    button(UIRefs.configsPage,"Load selected config",function() protected(function() api.Load(selected) end) end)
+    button(UIRefs.configsPage,"Delete selected config",function() protected(function()
+        assert(#names()>1,"Keep at least one config")
+        profiles[selected]=nil;selected=names()[1]
+        if not profiles[defaultName] then defaultName=selected end
+        refresh();notify("Config deleted · "..persist())
     end) end)
     autoLoadLabel=label(UIRefs.configsPage,"Auto-load: "..defaultName,13,colors.purple)
     autoLoadLabel.Size=UDim2.new(1,-2,0,25);autoLoadLabel:SetAttribute("PreferredColumn",2)
-    savedList=make("ScrollingFrame",{Name="SavedConfigList",Size=UDim2.new(1,-2,0,180),BackgroundColor3=colors.background,
+    savedList=make("ScrollingFrame",{Name="SavedConfigList",Size=UDim2.new(1,-2,0,260),BackgroundColor3=colors.background,
         BackgroundTransparency=.25,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=colors.purple,
         AutomaticCanvasSize=Enum.AutomaticSize.Y,CanvasSize=UDim2.new(),ScrollingDirection=Enum.ScrollingDirection.Y},UIRefs.configsPage)
     savedList:SetAttribute("SearchText","Saved configs list auto load");savedList:SetAttribute("PreferredColumn",2)
@@ -5512,28 +5781,9 @@ local Configs = (function()
         assert(profiles[selected],"Choose a saved config first")
         defaultName=selected;refresh();notify("Auto-load: "..selected.." · "..persist())
     end) end):SetAttribute("PreferredColumn",2)
-    button(UIRefs.configsPage,"Load selected now",function() protected(function() api.Load(selected) end) end):SetAttribute("PreferredColumn",2)
-    section(UIRefs.configsPage, "Import / export")
-    jsonField = make("TextBox", {Text = "", PlaceholderText = "Exported config JSON / paste JSON here to import",
-        ClearTextOnFocus = false, MultiLine = true, TextWrapped = true,
-        Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = colors.text, PlaceholderColor3 = colors.muted,
-        BackgroundColor3 = colors.raised, BorderSizePixel = 0, TextXAlignment = Enum.TextXAlignment.Left,
-        TextYAlignment = Enum.TextYAlignment.Top, Size = UDim2.new(1, -2, 0, 110)}, UIRefs.configsPage)
-    round(jsonField, 3)
-    button(UIRefs.configsPage, "Export selected to JSON", function() protected(function()
-        jsonField.Text = HttpService:JSONEncode({format = "StarfireMM2Profile", version = 1, name = selected, profile = profiles[selected]})
-        notify("Export ready · select and copy the JSON field")
-    end) end)
-    button(UIRefs.configsPage, "Import JSON as a config", function() protected(function()
-        assert(#jsonField.Text <= 65536, "Import is too large")
-        local doc = HttpService:JSONDecode(jsonField.Text)
-        assert(type(doc) == "table" and doc.format == "StarfireMM2Profile" and doc.version == 1, "Unknown config format")
-        local name = ConfigCodec.Name(doc.name or nameField.Text)
-        assert(profiles[name] or #names() < 40, "Maximum 40 configs")
-        ConfigCodec.Validate(doc.profile)
-        profiles[name], selected = doc.profile, name; refresh()
-        notify("Imported " .. name .. " · " .. persist())
-    end) end)
+    for _,row in ipairs(UIRefs.configsPage:GetChildren()) do
+        if row:IsA("GuiObject") and not row:GetAttribute("PreferredColumn") then row:SetAttribute("PreferredColumn",1) end
+    end
     refresh()
     return api
 end)()
@@ -5552,7 +5802,7 @@ for _, columns in pairs(pageColumns) do
         row.LayoutOrder = index
         rightSide = rightSide or height >= total * 0.5
             or (height > 0 and math.abs(height - total * 0.5) < math.abs(height + extent - total * 0.5))
-        if row:GetAttribute("PreferredColumn")==2 or rightSide then
+        if row:GetAttribute("PreferredColumn")==2 or (rightSide and row:GetAttribute("PreferredColumn")~=1) then
             row.Parent = columns[2]
         else
             height = height + extent
@@ -5597,7 +5847,7 @@ do
     for i,name in ipairs({"Knife","Hands","Weapon"}) do
         local tab=make("TextButton",{Text=name,Font=Enum.Font.GothamBold,TextSize=14,TextColor3=colors.text,
             BackgroundColor3=colors.raised,BorderSizePixel=0,AutoButtonColor=false,
-            Position=UDim2.new((i-1)/3,4,0,0),Size=UDim2.new(1/3,-12,0,32)},host)
+            Position=UDim2.new((i-1)/3,4,0,0),Size=UDim2.new(1/3,-12,0,34)},host)
         round(tab,6);tabs[name]=tab;connect(tab.Activated,function() show(name) end)
     end
     show("Knife")
@@ -5608,3 +5858,7 @@ notify("Right Shift: menu · O: gun · B: cursor teleport · aim is off")
 Configs.AutoLoad()
 
 -- Saved profiles own startup settings; do not overwrite their colours, hands or knife grip.
+
+
+-- Use the experience's normal inventory bar.
+pcall(function() game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack,true) end)
